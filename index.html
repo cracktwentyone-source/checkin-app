@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>町字PMTilesテスト</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    background: rgba(255,255,255,.96); padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    box-shadow: 0 -2px 8px rgba(0,0,0,.2); max-height: 45%; overflow-y: auto; font-size: 15px;
+  }
+  #name { font-size: 20px; font-weight: 700; margin: 0 0 2px; }
+  #meta { color: #555; font-size: 13px; margin-bottom: 8px; line-height: 1.5; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  button, label.btn {
+    font-size: 15px; padding: 10px 14px; border-radius: 8px; border: 1px solid #1976d2;
+    background: #fff; color: #1976d2; cursor: pointer;
+  }
+  button.primary { background: #1976d2; color: #fff; }
+  button:disabled { opacity: .4; }
+  #file { display: none; }
+  #status { color: #b71c1c; font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+  .opt { font-size: 13px; color: #333; margin-top: 8px; display: block; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="panel">
+  <div id="name">地図をタップ、または「現在地」を押してください</div>
+  <div id="meta"></div>
+  <div class="row">
+    <button id="btnLocate" class="primary">現在地を取得</button>
+    <button id="btnCheckin" disabled>チェックイン</button>
+    <label class="btn" for="file">PMTilesファイルを選ぶ</label>
+    <input id="file" type="file" accept=".pmtiles">
+  </div>
+  <label class="opt"><input id="optNear" type="checkbox"> 精度の範囲内の町字もまとめてチェックイン</label>
+  <div id="stats" class="opt"></div>
+  <div id="status"></div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"></script>
+<script>
+// ===== 設定 =====
+// R2に置いたPMTilesのURL。空のままなら「ファイルを選ぶ」か ?pmtiles=URL で指定できる
+const DEFAULT_URL = 'https://pub-a84766f0791b4aa6b6b98b63765402cf.r2.dev/oaza_all.pmtiles';
+const SOURCE_LAYER = 'oaza';      // tippecanoeの -l で付けたレイヤ名
+const KEY_PROP = 'key';           // 例: 06201-5 (city_code-id)
+const NAME_PROP = 'name';
+const STORE_KEY = 'oaza_visited_test_v1';
+// ================
+
+const SRC = 'oaza';
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const PMTILES_URL = params.get('pmtiles') || DEFAULT_URL;
+
+const protocol = new pmtiles.Protocol();
+maplibregl.addProtocol('pmtiles', protocol.tile);
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: {
+      gsi: {
+        type: 'raster',
+        tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
+        tileSize: 256, maxzoom: 18,
+        attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>'
+      }
+    },
+    layers: [{ id: 'gsi', type: 'raster', source: 'gsi' }]
+  },
+  center: [140.34, 38.25], zoom: 8
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'top-left');
+
+// ----- 訪問済み(テスト用にlocalStorage。使えない環境ではメモリのみ) -----
+let visited = new Set();
+try { visited = new Set(JSON.parse(localStorage.getItem(STORE_KEY) || '[]')); } catch (e) {}
+function saveVisited() {
+  try { localStorage.setItem(STORE_KEY, JSON.stringify([...visited])); } catch (e) {}
+  $('stats').textContent = '訪問済み: ' + visited.size + ' 件(この端末のテスト保存)';
+}
+function applyVisited() {
+  for (const k of visited) {
+    map.setFeatureState({ source: SRC, sourceLayer: SOURCE_LAYER, id: k }, { visited: true });
+  }
+  saveVisited();
+}
+
+// ----- PMTiles を地図に載せる -----
+async function useArchive(p) {
+  $('status').textContent = '';
+  try {
+    protocol.add(p);
+    const h = await p.getHeader();
+    for (const id of ['oaza-line', 'oaza-fill']) if (map.getLayer(id)) map.removeLayer(id);
+    if (map.getSource(SRC)) map.removeSource(SRC);
+    map.addSource(SRC, {
+      type: 'vector',
+      url: 'pmtiles://' + p.source.getKey(),
+      promoteId: { [SOURCE_LAYER]: KEY_PROP }
+    });
+    map.addLayer({
+      id: 'oaza-fill', type: 'fill', source: SRC, 'source-layer': SOURCE_LAYER,
+      paint: {
+        'fill-color': ['case', ['boolean', ['feature-state', 'visited'], false], '#1976d2', '#9e9e9e'],
+        'fill-opacity': ['case', ['boolean', ['feature-state', 'visited'], false], 0.55, 0.18]
+      }
+    });
+    map.addLayer({
+      id: 'oaza-line', type: 'line', source: SRC, 'source-layer': SOURCE_LAYER,
+      paint: { 'line-color': '#555', 'line-width': 0.6 }
+    });
+    applyVisited();
+    map.fitBounds([[h.minLon, h.minLat], [h.maxLon, h.maxLat]], { padding: 20, animate: false });
+  } catch (e) {
+    $('status').textContent = 'PMTilesを開けませんでした。\n' + e.message +
+      '\n(URLの場合はCORSとRange要求の許可を確認してください)';
+  }
+}
+
+map.on('load', () => {
+  saveVisited();
+  if (PMTILES_URL) useArchive(new pmtiles.PMTiles(PMTILES_URL));
+  else $('status').textContent = 'PMTilesが未指定です。「PMTilesファイルを選ぶ」で oaza_06.pmtiles を選んでください。';
+});
+
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const go = () => useArchive(new pmtiles.PMTiles(new pmtiles.FileSource(f)));
+  if (map.loaded()) go(); else map.once('load', go);
+});
+
+// ----- 判定 -----
+let current = { exact: [], near: [] };
+
+function dedupe(features) {
+  const seen = new Map();
+  for (const f of features) {
+    const k = f.properties[KEY_PROP];
+    if (k != null && !seen.has(k)) seen.set(k, f.properties);
+  }
+  return [...seen.values()];
+}
+
+function inspect(lng, lat, accuracy) {
+  if (!map.getLayer('oaza-fill')) return;
+  const pt = map.project([lng, lat]);
+  const exact = dedupe(map.queryRenderedFeatures(pt, { layers: ['oaza-fill'] }));
+  const mpp = 78271.517 * Math.cos(lat * Math.PI / 180) / Math.pow(2, map.getZoom());
+  const r = Math.min(Math.ceil((accuracy || 0) / mpp), 300);
+  const near = dedupe(map.queryRenderedFeatures(
+    [[pt.x - r, pt.y - r], [pt.x + r, pt.y + r]], { layers: ['oaza-fill'] }));
+  current = { exact, near };
+
+  if (exact.length) {
+    const p = exact[0];
+    $('name').textContent = p[NAME_PROP] || '(名称なし)';
+    const others = near.filter(n => n[KEY_PROP] !== p[KEY_PROP]).map(n => n[NAME_PROP]);
+    $('meta').innerHTML = 'key: ' + p[KEY_PROP] + (visited.has(p[KEY_PROP]) ? ' ・訪問済み' : '') +
+      (accuracy ? '<br>GPS精度 ±' + Math.round(accuracy) + 'm' : '') +
+      (others.length ? '<br>範囲内の他: ' + others.slice(0, 8).join('、') + (others.length > 8 ? ' ほか' : '') : '');
+    $('btnCheckin').disabled = false;
+  } else {
+    $('name').textContent = 'この地点の町字は見つかりませんでした';
+    $('meta').textContent = (accuracy ? 'GPS精度 ±' + Math.round(accuracy) + 'm' : '') +
+      (near.length ? ' ・範囲内に ' + near.length + ' 件あり' : '');
+    $('btnCheckin').disabled = near.length === 0;
+  }
+}
+
+// 地図タップで確認(PC用)
+map.on('click', e => {
+  if (!map.getLayer('oaza-fill')) return;
+  inspect(e.lngLat.lng, e.lngLat.lat, 0);
+});
+
+// 現在地
+let marker = null;
+$('btnLocate').addEventListener('click', () => {
+  if (!navigator.geolocation) { $('status').textContent = 'この環境では位置情報を使えません'; return; }
+  $('status').textContent = '位置を取得中…';
+  navigator.geolocation.getCurrentPosition(pos => {
+    $('status').textContent = '';
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    if (!marker) marker = new maplibregl.Marker({ color: '#d32f2f' });
+    marker.setLngLat([lng, lat]).addTo(map);
+    map.jumpTo({ center: [lng, lat], zoom: 15 });
+    let done = false;
+    const run = () => { if (done) return; done = true; inspect(lng, lat, accuracy); };
+    map.once('idle', run);
+    setTimeout(run, 4000);
+  }, err => {
+    $('status').textContent = '位置を取得できませんでした: ' + err.message +
+      '\n(HTTPSで開いているか、位置情報の許可を確認してください)';
+  }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+});
+
+// チェックイン
+$('btnCheckin').addEventListener('click', () => {
+  const list = $('optNear').checked ? current.near : current.exact;
+  for (const p of list) {
+    const k = p[KEY_PROP];
+    visited.add(k);
+    map.setFeatureState({ source: SRC, sourceLayer: SOURCE_LAYER, id: k }, { visited: true });
+  }
+  saveVisited();
+  $('status').textContent = '';
+  $('meta').innerHTML += '<br>' + list.length + ' 件チェックインしました';
+});
+</script>
+</body>
+</html>
