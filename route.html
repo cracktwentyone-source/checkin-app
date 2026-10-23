@@ -108,6 +108,8 @@ function saveApp() { try { localStorage.setItem(APP_KEY, JSON.stringify(app)); }
 const CAT_URL = params.get('catalog') || 'routes.json';
 const CACHE = 'routes-v1';
 let catalog = [];
+let catErr = '';
+let catLoading = null;
 const hasCache = () => 'caches' in window;
 async function cachedFiles() {
   if (!hasCache()) return new Set();
@@ -130,19 +132,29 @@ async function saveOffline(file) { const c = await caches.open(CACHE); await c.a
 async function deleteOffline(file) { const c = await caches.open(CACHE); await c.delete(file); }
 
 async function loadCatalog() {
-  try {
-    const res = await fetch(CAT_URL, { cache: 'no-cache' });
-    if (!res.ok) throw new Error(res.status);
-    catalog = await res.json();
-  } catch (e) {
-    catalog = [];
-  }
-  renderCatalog();
+  if (catLoading) return catLoading;
+  catLoading = (async () => {
+    const url = new URL(CAT_URL, location.href).href;
+    try {
+      const res = await fetch(url, { cache: 'no-cache' });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const j = await res.json();
+      if (!Array.isArray(j)) throw new Error('中身が一覧の形ではありません');
+      catalog = j; catErr = j.length ? '' : '一覧は0件でした';
+    } catch (e) {
+      catalog = []; catErr = (e.message || String(e)) + '\n' + url;
+    }
+    catLoading = null;
+    renderCatalog();
+  })();
+  return catLoading;
 }
 async function renderCatalog() {
   const ul = $('catList');
   if (!catalog.length) {
-    ul.innerHTML = '<li>路線の一覧(routes.json)が見つかりません。「ファイルから」で読み込めます。</li>';
+    ul.innerHTML = catLoading ? '<li>一覧を読み込み中…</li>' :
+      '<li>路線の一覧(routes.json)を読めませんでした。「ファイルから」で読み込めます。' +
+      '<br><small style="white-space:pre-wrap;color:#b71c1c">' + (catErr || '').replace(/</g, '&lt;') + '</small></li>';
     return;
   }
   const q = $('catSearch').value.trim();
@@ -523,14 +535,20 @@ $('btnReset').addEventListener('click', () => {
   $('status').textContent = '記録を消しました。';
 });
 
-$('btnCat').addEventListener('click', () => { const c = $('catalog'); c.hidden = !c.hidden; if (!c.hidden) renderCatalog(); });
+$('btnCat').addEventListener('click', () => {
+  const c = $('catalog'); c.hidden = !c.hidden;
+  if (c.hidden) return;
+  if (!catalog.length && !catLoading) loadCatalog();   // 失敗していたら開くたびに読み直す
+  renderCatalog();
+});
 $('catSearch').addEventListener('input', () => renderCatalog());
 
 // 起動時:前回「使う」にしていた路線と、?route=URL1,URL2 で指定した路線を読み込む
+loadCatalog();   // 一覧は路線の読み込みを待たずにすぐ取りに行く
 (async () => {
   const list = [...new Set([...app.active, ...(params.get('route') || '').split(',').filter(Boolean)])];
   for (const f of list) await useFile(f);
-  loadCatalog();
+  renderCatalog();
 })();
 </script>
 </body>
