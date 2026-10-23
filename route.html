@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>路線走破テスト</title>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<style>
+  html, body { margin: 0; height: 100%; font-family: -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  #map { position: absolute; inset: 0; }
+  #panel {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+    background: rgba(255,255,255,.97); padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+    box-shadow: 0 -2px 8px rgba(0,0,0,.2); max-height: 48%; overflow-y: auto; font-size: 14px;
+  }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  button, label.btn {
+    font-size: 14px; padding: 9px 12px; border-radius: 8px; border: 1px solid #1976d2;
+    background: #fff; color: #1976d2; cursor: pointer;
+  }
+  label.btn.primary { background: #1976d2; color: #fff; }
+  input[type=file] { display: none; }
+  #status { color: #555; font-size: 12px; margin-top: 6px; white-space: pre-wrap; }
+  .route { margin-top: 10px; border-top: 1px solid #ddd; padding-top: 8px; }
+  .route h3 { margin: 0 0 4px; font-size: 16px; }
+  .bar { height: 10px; background: #e0e0e0; border-radius: 5px; overflow: hidden; }
+  .bar > div { height: 100%; background: #1976d2; }
+  .units { margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; }
+  .units li { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px dotted #eee; }
+  .units li.done { color: #1565c0; font-weight: 600; }
+  .units li.ex span:first-child { color: #9e9e9e; text-decoration: line-through; }
+  .units li button.ex { font-size: 11px; padding: 2px 6px; margin-left: 6px; border-color: #9e9e9e; color: #616161; }
+  .route h3 { display: flex; justify-content: space-between; align-items: center; }
+  .route h3 button { font-size: 12px; padding: 4px 8px; border-color: #9e9e9e; color: #616161; }
+  #catalog { margin-top: 8px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; }
+  #catalog input[type=search] { width: 100%; box-sizing: border-box; font-size: 14px; padding: 7px 8px; border: 1px solid #bbb; border-radius: 6px; }
+  #catList { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  #catList li { display: flex; align-items: center; gap: 6px; padding: 5px 0; border-bottom: 1px dotted #e0e0e0; font-size: 14px; }
+  #catList li .nm { flex: 1; }
+  #catList li .sz { color: #888; font-size: 12px; }
+  #catList li button { font-size: 12px; padding: 5px 8px; }
+  #catList li button.on { background: #1976d2; color: #fff; }
+  #catList li button.saved { border-color: #2e7d32; color: #2e7d32; }
+  #catalog .note { font-size: 12px; color: #777; margin-top: 4px; }
+  textarea.sql { width: 100%; height: 90px; font-size: 11px; font-family: ui-monospace, Menlo, monospace; margin-top: 6px; }
+  .units li .d { color: #777; font-variant-numeric: tabular-nums; }
+  details summary { cursor: pointer; color: #1976d2; font-size: 13px; margin-top: 4px; }
+  button.rev { margin-top: 6px; font-size: 12px; padding: 6px 10px; }
+
+  /* 発見バナー(シンプル版) */
+  #banner-layer { position: fixed; left: 0; right: 0; top: 12%; display: flex; justify-content: center; pointer-events: none; z-index: 1000; }
+  .simple {
+    color: #fff; text-align: center; white-space: nowrap;
+    font-size: clamp(18px, 5vw, 28px); font-weight: 500; letter-spacing: .4em; padding-left: .4em;
+    text-shadow: 0 0 4px rgba(0,0,0,.85), 0 1px 10px rgba(0,0,0,.5);
+  }
+  .simple span { display: inline-block; opacity: 0; animation: s-in var(--dur, 700ms) ease forwards; }
+  .simple.out span { opacity: 1; animation: s-out var(--dur, 700ms) ease forwards; }
+  @keyframes s-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes s-out { from { opacity: 1; } to { opacity: 0; } }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="banner-layer"></div>
+<div id="panel">
+  <div class="row">
+    <button id="btnCat">路線の一覧</button>
+    <label class="btn" for="fRoute">ファイルから</label>
+    <input id="fRoute" type="file" accept=".geojson,.json" multiple>
+    <label class="btn primary" for="fGpx">GPXを読み込む</label>
+    <input id="fGpx" type="file" accept=".gpx,application/gpx+xml,text/xml">
+    <button id="btnReset">記録をリセット</button>
+  </div>
+  <div id="catalog" hidden>
+    <input id="catSearch" type="search" placeholder="路線名・番号で絞り込み(例:112、山形)">
+    <ul id="catList"></ul>
+    <div class="note">「使う」=地図に出して判定の対象にする。「端末に保存」=圏外でも使えるようにこの端末に保存する。</div>
+  </div>
+  <div id="status">走る予定の路線を選んでから、GPXを読み込んでください。</div>
+  <div id="routes"></div>
+</div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+// ===== 設定 =====
+const STEP_M = 50;               // 軌跡を区切る長さ(m)
+const MAX_GAP_MIN = 30;          // これより時間が空いた2点はつながない(別の日・別の移動とみなす)
+const STORE_KEY = 'road_progress_v1';
+// ================
+
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+
+// ---------- 記録(テスト用。この端末のブラウザに保存) ----------
+let store = {};
+try { store = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (e) {}
+function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(store)); } catch (e) {} }
+function rec(ref) { return store[ref] || (store[ref] = { dist: {}, lastTime: null }); }
+
+// 使っている路線(次に開いたときも自動で読み込む)
+const APP_KEY = 'road_app_v1';
+let app = { active: [] };
+try { app = Object.assign(app, JSON.parse(localStorage.getItem(APP_KEY) || '{}')); } catch (e) {}
+function saveApp() { try { localStorage.setItem(APP_KEY, JSON.stringify(app)); } catch (e) {} }
+
+// ---------- 路線の一覧(routes.json)と端末への保存 ----------
+const CAT_URL = params.get('catalog') || 'routes.json';
+const CACHE = 'routes-v1';
+let catalog = [];
+const hasCache = () => 'caches' in window;
+async function cachedFiles() {
+  if (!hasCache()) return new Set();
+  try {
+    const c = await caches.open(CACHE);
+    return new Set((await c.keys()).map(r => new URL(r.url).pathname));
+  } catch (e) { return new Set(); }
+}
+const absPath = f => new URL(f, location.href).pathname;
+async function fetchRoute(file) {
+  // 端末に保存してあればそれを使う(圏外でも読める)。無ければ取りに行く
+  if (hasCache()) {
+    try { const hit = await (await caches.open(CACHE)).match(file); if (hit) return await hit.json(); } catch (e) {}
+  }
+  const res = await fetch(file);
+  if (!res.ok) throw new Error(res.status + ' ' + file);
+  return await res.json();
+}
+async function saveOffline(file) { const c = await caches.open(CACHE); await c.add(file); }
+async function deleteOffline(file) { const c = await caches.open(CACHE); await c.delete(file); }
+
+async function loadCatalog() {
+  try {
+    const res = await fetch(CAT_URL, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(res.status);
+    catalog = await res.json();
+  } catch (e) {
+    catalog = [];
+  }
+  renderCatalog();
+}
+async function renderCatalog() {
+  const ul = $('catList');
+  if (!catalog.length) {
+    ul.innerHTML = '<li>路線の一覧(routes.json)が見つかりません。「ファイルから」で読み込めます。</li>';
+    return;
+  }
+  const q = $('catSearch').value.trim();
+  const saved = await cachedFiles();
+  const rows = catalog.filter(c => !q || (c.name + ' ' + c.ref).includes(q));
+  ul.innerHTML = rows.map(c => {
+    const on = routes.some(r => r.file === c.file);
+    const sv = saved.has(absPath(c.file));
+    const sz = c.size_kb ? (c.size_kb >= 1024 ? (c.size_kb / 1024).toFixed(1) + 'MB' : c.size_kb + 'KB') : '';
+    return `<li><span class="nm">${c.name}</span><span class="sz">${sz}</span>` +
+      `<button class="use ${on ? 'on' : ''}" data-f="${c.file}">${on ? '使用中' : '使う'}</button>` +
+      (hasCache() ? `<button class="sv ${sv ? 'saved' : ''}" data-f="${c.file}">${sv ? '保存済み' : '端末に保存'}</button>` : '') +
+      `</li>`;
+  }).join('') || '<li>該当する路線がありません。</li>';
+  ul.querySelectorAll('button.use').forEach(b => b.addEventListener('click', () => toggleUse(b.dataset.f)));
+  ul.querySelectorAll('button.sv').forEach(b => b.addEventListener('click', async () => {
+    const f = b.dataset.f;
+    try {
+      if (b.classList.contains('saved')) {
+        if (!confirm('この端末に保存した路線ファイルを消します(走破の記録は消えません)。')) return;
+        await deleteOffline(f);
+      } else {
+        b.textContent = '保存中…'; await saveOffline(f);
+      }
+    } catch (e) { $('status').textContent = '保存できませんでした:' + e.message; }
+    renderCatalog();
+  }));
+}
+async function useFile(file) {
+  try { await addRoute(await fetchRoute(file), file, file); }
+  catch (e) { $('status').textContent = '路線ファイルを読めませんでした:' + e.message; }
+}
+async function toggleUse(file) {
+  const r = routes.find(r => r.file === file);
+  if (r) removeRoute(r); else await useFile(file);
+  renderCatalog();
+}
+
+// ---------- 判定のための計算 ----------
+function haversine(a, b) {
+  const R = 6371008.8, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function ringContains(ring, x, y) {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+    if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+function polysOf(geom) {
+  if (!geom) return [];
+  if (geom.type === 'Polygon') return [geom.coordinates];
+  if (geom.type === 'MultiPolygon') return geom.coordinates;
+  return [];
+}
+function geomContains(polys, x, y) {
+  for (const p of polys) {
+    if (!ringContains(p[0], x, y)) continue;
+    let inHole = false;
+    for (let h = 1; h < p.length; h++) if (ringContains(p[h], x, y)) { inHole = true; break; }
+    if (!inHole) return true;
+  }
+  return false;
+}
+function bboxOf(polys) {
+  let b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const p of polys) for (const c of p[0]) {
+    if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1];
+    if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1];
+  }
+  return b;
+}
+const inBox = (b, x, y) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
+
+// 1路線ぶんの判定:前回までの続き(lastTime より後)の区間だけを足し込む
+function judgeRoute(route, pts) {
+  const r = rec(route.ref);
+  const last = r.lastTime ? Date.parse(r.lastTime) : null;
+  const add = {};
+  let maxT = last;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i];
+    if (a.t != null && b.t != null) {
+      if (b.t - a.t > MAX_GAP_MIN * 60000) continue;
+      if (last != null && b.t <= last) continue;
+      if (maxT == null || b.t > maxT) maxT = b.t;
+    }
+    const minx = Math.min(a.lon, b.lon), maxx = Math.max(a.lon, b.lon);
+    const miny = Math.min(a.lat, b.lat), maxy = Math.max(a.lat, b.lat);
+    const rb = route.bbox;
+    if (maxx < rb[0] || minx > rb[2] || maxy < rb[1] || miny > rb[3]) continue;
+    const d = haversine(a, b);
+    if (d === 0) continue;
+    const n = Math.max(1, Math.ceil(d / STEP_M)), step = d / n;
+    for (let k = 0; k < n; k++) {
+      const f = (k + 0.5) / n;
+      const x = a.lon + (b.lon - a.lon) * f, y = a.lat + (b.lat - a.lat) * f;
+      for (const u of route.units) {
+        if (inBox(u.bbox, x, y) && geomContains(u.polys, x, y)) {
+          add[u.id] = (add[u.id] || 0) + step;
+          break;
+        }
+      }
+    }
+  }
+  return { add, maxT };
+}
+
+// ---------- GPXの読み込み ----------
+function parseGpx(text) {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  const nodes = [...doc.getElementsByTagName('trkpt')];
+  const pts = nodes.map(n => {
+    const t = n.getElementsByTagName('time')[0];
+    return { lat: +n.getAttribute('lat'), lon: +n.getAttribute('lon'), t: t ? Date.parse(t.textContent) : null };
+  }).filter(p => isFinite(p.lat) && isFinite(p.lon));
+  if (pts.every(p => p.t != null)) pts.sort((p, q) => p.t - q.t);
+  return pts;
+}
+
+// ---------- バナー ----------
+const Banner = (() => {
+  const layer = $('banner-layer'); const q = []; let busy = false;
+  function show(o) { q.push(o); if (!busy) next(); }
+  function next() {
+    const o = q.shift(); if (!o) { busy = false; return; } busy = true;
+    const step = 90, dur = 700, hold = 2500;
+    const chars = [...(o.label ? o.label + ': ' + o.title : o.title)];
+    const el = document.createElement('div'); el.className = 'simple'; el.style.setProperty('--dur', dur + 'ms');
+    chars.forEach((c, i) => { const s = document.createElement('span'); s.textContent = c === ' ' ? ' ' : c; s.style.animationDelay = (i * step) + 'ms'; el.appendChild(s); });
+    layer.appendChild(el);
+    const sweep = (chars.length - 1) * step + dur;
+    setTimeout(() => el.classList.add('out'), sweep + hold);
+    setTimeout(() => { el.remove(); setTimeout(next, 250); }, sweep * 2 + hold);
+  }
+  return { show };
+})();
+
+// ---------- 地図 ----------
+const map = new maplibregl.Map({
+  container: 'map',
+  style: {
+    version: 8,
+    sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 18,
+      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a> | 路線:© OpenStreetMap contributors' } },
+    layers: [{ id: 'gsi', type: 'raster', source: 'gsi' }]
+  },
+  center: [140.0, 38.5], zoom: 7
+});
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+map.addControl(new maplibregl.GeolocateControl({ positionOptions: { enableHighAccuracy: true }, trackUserLocation: true }), 'top-right');
+const mapReady = new Promise(res => map.on('load', res));
+
+const routes = [];   // { ref, name, units[], unitById, bbox, src, order }
+let srcSeq = 0;
+
+async function addRoute(gj, label, file) {
+  await mapReady;
+  const feats = gj.features || [];
+  const line = feats.find(f => f.properties.kind === 'line');
+  const units = feats.filter(f => f.properties.kind === 'unit');
+  if (!units.length) throw new Error(label + ':判定単位(kind=unit)がありません');
+  const ref = units[0].properties.route_ref;
+  if (routes.find(r => r.ref === ref)) return;
+  const name = (line && line.properties.name) || ref;
+
+  const u2 = units.map(f => {
+    const polys = polysOf(f.geometry);
+    const c = centerOf(polys);
+    return { id: String(f.properties.match_id), name: f.properties.name || f.properties.match_id,
+             len: +f.properties.len_m || 0, th: +f.properties.threshold_m || 500, polys, bbox: bboxOf(polys),
+             seq: f.properties.seq != null ? +f.properties.seq : null, lon: c[0], lat: c[1],
+             fileEx: f.properties.excluded === true || f.properties.excluded === 'true' };
+  });
+  const bbox = u2.reduce((b, u) => [Math.min(b[0], u.bbox[0]), Math.min(b[1], u.bbox[1]), Math.max(b[2], u.bbox[2]), Math.max(b[3], u.bbox[3])],
+                         [Infinity, Infinity, -Infinity, -Infinity]);
+  const src = 'route-' + (srcSeq++);
+  map.addSource(src, { type: 'geojson', data: gj, promoteId: 'match_id' });
+  map.addLayer({ id: src + '-area', type: 'fill', source: src, filter: ['==', ['get', 'kind'], 'area'],
+    paint: { 'fill-color': ['match', ['coalesce', ['feature-state', 'st'], 0], 2, '#1976d2', 1, '#64b5f6', 3, '#fff8e1', '#9e9e9e'],
+             'fill-opacity': ['match', ['coalesce', ['feature-state', 'st'], 0], 2, 0.45, 1, 0.35, 3, 0.6, 0.15] } });
+  map.addLayer({ id: src + '-area-line', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
+    paint: { 'line-color': '#616161', 'line-width': 0.8 } });
+  map.addLayer({ id: src + '-line', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'line'],
+    paint: { 'line-color': '#d32f2f', 'line-width': 2.5 } });
+
+  const startF = feats.find(f => f.properties.kind === 'start');
+  const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
+  const route = { ref, name, file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
+                  order: orderUnits(u2, startPt), hasStart: !!startPt };
+  routes.push(route);
+  if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
+  render();
+  fitAll();
+  // 路線を読み込んだ時点で「開始」を出す(すでに完走している路線は出さない)
+  const t = targets(route);
+  if (!(t.length && t.every(u => stateOf(route, u) === 2))) Banner.show({ label: '開始', title: name });
+}
+
+// ---------- 起点からの並び順 ----------
+// 1) 判定単位に seq(起点からの順番)があればそれを使う(将来PostGIS側で付ける場合)
+// 2) 無ければ、起点(kind=start の点)から「一番近い町村 → そこから一番近い町村 …」とたどる
+//    起点が無いときは、いちばん離れた2つの町村を両端とみなし、片方から始める(逆順ボタンで入れ替え)
+function centerOf(polys) {
+  let sx = 0, sy = 0, n = 0;
+  for (const p of polys) for (const c of p[0]) { sx += c[0]; sy += c[1]; n++; }
+  return n ? [sx / n, sy / n] : [0, 0];
+}
+function firstCoord(g) {
+  let c = g.coordinates;
+  while (Array.isArray(c[0])) c = c[0];
+  return { lon: c[0], lat: c[1] };
+}
+function orderUnits(units, startPt) {
+  if (units.length && units.every(u => u.seq != null)) return [...units].sort((a, b) => a.seq - b.seq);
+  if (units.length < 2) return [...units];
+  let first;
+  if (startPt) {
+    first = units.reduce((m, u) => haversine(startPt, u) < haversine(startPt, m) ? u : m);
+  } else {
+    let best = -1;
+    for (const a of units) for (const b of units) {
+      const d = haversine(a, b);
+      if (d > best) { best = d; first = a.lon + a.lat <= b.lon + b.lat ? a : b; }  // 仮に南西寄りを起点に
+    }
+  }
+  const rest = new Set(units), out = [first]; rest.delete(first);
+  let cur = first;
+  while (rest.size) {
+    let next = null, nd = Infinity;
+    for (const u of rest) { const d = haversine(cur, u); if (d < nd) { nd = d; next = u; } }
+    out.push(next); rest.delete(next); cur = next;
+  }
+  return out;
+}
+
+function fitAll() {
+  if (!routes.length) return;
+  const b = routes.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])],
+                          [Infinity, Infinity, -Infinity, -Infinity]);
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 30, animate: false });
+}
+
+// 除外:路線ファイルの excluded(PostGIS側の設定)を基本に、この画面で切り替えた分を上書きする
+function isEx(route, u) {
+  const o = (rec(route.ref).ex || {})[u.id];
+  return o != null ? o : u.fileEx;
+}
+// 0=未走行 1=途中 2=走破 3=除外
+function stateOf(route, u) {
+  if (isEx(route, u)) return 3;
+  const d = rec(route.ref).dist[u.id] || 0;
+  return d >= u.th ? 2 : d > 0 ? 1 : 0;
+}
+function targets(route) { return route.units.filter(u => !isEx(route, u)); }
+
+function removeRoute(r) {
+  for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-line']) if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(r.src)) map.removeSource(r.src);
+  routes.splice(routes.indexOf(r), 1);
+  if (r.file) { app.active = app.active.filter(f => f !== r.file); saveApp(); }
+  render();
+  renderCatalog();
+}
+
+function exclusionSql(r) {
+  // 手動の除外は別テーブル roadshow.unit_manual に持つ(area_stat を作り直しても消えないように)
+  const ids = r.units.filter(u => isEx(r, u)).map(u => u.id.replace(/'/g, "''"));
+  let sql = `-- ${r.name}:この画面の除外設定をPostGISに書き戻す\n` +
+            `DELETE FROM roadshow.unit_manual WHERE route_ref = '${r.ref}' AND manual = 'exclude';\n`;
+  if (ids.length) sql += `INSERT INTO roadshow.unit_manual (route_ref, match_id, manual) VALUES\n` +
+    ids.map(id => `  ('${r.ref}', '${id}', 'exclude')`).join(',\n') + ';\n';
+  return sql;
+}
+
+function render() {
+  const box = $('routes'); box.innerHTML = '';
+  for (const r of routes) {
+    let done = 0;
+    for (const u of r.units) {
+      const st = stateOf(r, u); if (st === 2) done++;
+      map.setFeatureState({ source: r.src, id: u.id }, { st });
+    }
+    const total = targets(r).length;
+    const nEx = r.units.length - total;
+    const pct = total ? Math.floor(done / total * 1000) / 10 : 0;
+    const div = document.createElement('div'); div.className = 'route';
+    const list = rec(r.ref).reversed ? [...r.order].reverse() : r.order;
+    const items = list.map((u, i) => {
+      const d = rec(r.ref).dist[u.id] || 0, st = stateOf(r, u);
+      const cls = st === 2 ? 'done' : st === 3 ? 'ex' : '';
+      return `<li class="${cls}"><span>${i + 1}. ${u.name}</span><span class="d">${st === 3 ? '除外' : Math.round(d) + ' / ' + Math.round(u.th) + ' m'}` +
+             `<button class="ex" data-id="${u.id}">${st === 3 ? '戻す' : '除外'}</button></span></li>`;
+    }).join('');
+    const ends = list.length ? `${list[0].name} → ${list[list.length - 1].name}` : '';
+    div.innerHTML = `<h3><span>${r.name}</span><button class="rm">外す</button></h3>
+      <div>${done} / ${total} 町村 ・ ${pct}%${nEx ? `(除外 ${nEx})` : ''}</div>
+      <div class="bar"><div style="width:${pct}%"></div></div>
+      <details ${rec(r.ref).open ? 'open' : ''}><summary>町村ごとの距離(${ends})</summary>
+        <ul class="units">${items}</ul>
+        <button class="rev">起点と終点を入れ替える</button>
+        <button class="sqlbtn">除外の設定をSQLで表示</button>
+        <textarea class="sql" readonly hidden></textarea></details>`;
+    div.querySelector('.rm').addEventListener('click', () => removeRoute(r));
+    div.querySelectorAll('button.ex').forEach(b => b.addEventListener('click', () => {
+      const R = rec(r.ref); R.ex = R.ex || {}; R.open = true;
+      const u = r.unitById[b.dataset.id];
+      R.ex[u.id] = !isEx(r, u);
+      if (R.ex[u.id] === u.fileEx) delete R.ex[u.id];   // ファイルの設定と同じなら上書きを消す
+      save(); render();
+    }));
+    div.querySelector('.sqlbtn').addEventListener('click', () => {
+      const t = div.querySelector('textarea.sql'); t.hidden = false; t.value = exclusionSql(r); t.select();
+    });
+    div.querySelector('.rev').addEventListener('click', () => {
+      const R = rec(r.ref); R.reversed = !R.reversed; R.open = true; save(); render();
+    });
+    div.querySelector('details').addEventListener('toggle', e => { rec(r.ref).open = e.target.open; save(); });
+    box.appendChild(div);
+  }
+}
+
+// ---------- 軌跡を読み込んで判定 ----------
+function drawTrack(pts) {
+  const data = { type: 'Feature', geometry: { type: 'LineString', coordinates: pts.map(p => [p.lon, p.lat]) } };
+  if (map.getSource('track')) map.getSource('track').setData(data);
+  else {
+    map.addSource('track', { type: 'geojson', data });
+    map.addLayer({ id: 'track', type: 'line', source: 'track', paint: { 'line-color': '#ff6f00', 'line-width': 3, 'line-opacity': 0.8 } });
+  }
+}
+
+function importTrack(pts) {
+  if (!routes.length) { $('status').textContent = '先に路線ファイルを選んでください。'; return; }
+  if (pts.length < 2) { $('status').textContent = 'GPXに軌跡の点がありません。'; return; }
+  const noTime = pts.some(p => p.t == null);
+  drawTrack(pts);
+  const msgs = [];
+  for (const r of routes) {
+    const before = new Set(r.units.filter(u => stateOf(r, u) === 2).map(u => u.id));
+    const { add, maxT } = judgeRoute(r, pts);
+    const R = rec(r.ref);
+    let added = 0;
+    for (const id in add) { R.dist[id] = (R.dist[id] || 0) + add[id]; added += add[id]; }
+    if (maxT != null && !noTime) R.lastTime = new Date(maxT).toISOString();
+    const nowDone = r.units.filter(u => stateOf(r, u) === 2);
+    const total = targets(r).length;
+    const fresh = nowDone.filter(u => !before.has(u.id));
+    if (fresh.length && total && nowDone.length === total) Banner.show({ label: '完了', title: r.name });
+    msgs.push(`${r.name}:今回 ${Math.round(added)} m、新たに走破 ${fresh.length} 町村`);
+  }
+  save(); render();
+  $('status').textContent = `軌跡 ${pts.length} 点を読み込みました。\n` + msgs.join('\n') +
+    (noTime ? '\n※時刻の無い点があるため、重複読み込みの防止は効きません。' : '');
+}
+
+// ---------- 操作 ----------
+$('fRoute').addEventListener('change', async e => {
+  for (const f of e.target.files) {
+    try { await addRoute(JSON.parse(await f.text()), f.name); }
+    catch (err) { $('status').textContent = err.message; }
+  }
+  e.target.value = '';
+});
+$('fGpx').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try { importTrack(parseGpx(await f.text())); }
+  catch (err) { $('status').textContent = 'GPXを読めませんでした:' + err.message; }
+  e.target.value = '';
+});
+$('btnReset').addEventListener('click', () => {
+  if (!confirm('この端末に保存した走破記録を消します。よろしいですか?')) return;
+  store = {}; save(); render();
+  $('status').textContent = '記録を消しました。';
+});
+
+$('btnCat').addEventListener('click', () => { const c = $('catalog'); c.hidden = !c.hidden; if (!c.hidden) renderCatalog(); });
+$('catSearch').addEventListener('input', () => renderCatalog());
+
+// 起動時:前回「使う」にしていた路線と、?route=URL1,URL2 で指定した路線を読み込む
+(async () => {
+  const list = [...new Set([...app.active, ...(params.get('route') || '').split(',').filter(Boolean)])];
+  for (const f of list) await useFile(f);
+  loadCatalog();
+})();
+</script>
+</body>
+</html>
