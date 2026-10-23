@@ -3,6 +3,7 @@
   "ref": "00-112",
   "name": "国道112号",
   "file": "routes/r00_112.geojson",
-  "size_kb": 272
+  "size_kb": 272,
+  "hash": "dbacfa1f08c1"
  }
 ]
