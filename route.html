@@ -80,8 +80,13 @@
   .units .tools { display:flex; gap:8px; padding:10px 16px 0; }
   .units .tools button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; font-size:12px; color:var(--sub); cursor:pointer; }
 
-  .add { display:flex; align-items:center; justify-content:center; gap:6px; margin:14px 16px 0; padding:12px;
-    border:1.5px dashed #c8ced6; border-radius:10px; color:var(--blue); background:none; width:calc(100% - 32px); cursor:pointer; font-size:14px; }
+  #addBar { padding:10px 16px; border-bottom:1px solid var(--line); background:#fff; }
+  #addBar[hidden] { display:none; }
+  .add { display:flex; align-items:center; justify-content:center; gap:6px; margin:0; padding:10px;
+    border:1.5px dashed #c8ced6; border-radius:10px; color:var(--blue); background:none; width:100%; cursor:pointer; font-size:14px; }
+  .units .tools .clr { color:var(--red); }
+  #fabNorth[hidden] { display:none; }
+  #fabNorth svg { transition:transform .1s linear; }
 
   /* ---- 軌跡タブ ---- */
   .sec { font-size:12px; color:var(--sub); padding:14px 16px 6px; font-weight:600; }
@@ -132,7 +137,7 @@
 
   #toast { position:absolute; left:50%; top:calc(16px + env(safe-area-inset-top)); transform:translateX(-50%);
     background:rgba(29,35,43,.9); color:#fff; font-size:13px; padding:8px 14px; border-radius:14px; z-index:20;
-    opacity:0; transition:opacity .2s; pointer-events:none; max-width:calc(100% - 120px); white-space:pre-line; line-height:1.5; }
+    opacity:0; transition:opacity .2s; pointer-events:none; max-width:calc(100% - 32px); width:max-content; box-sizing:border-box; white-space:pre-line; line-height:1.5; }
   #toast.on { opacity:1; }
 
   /* ---- 発見バナー(シンプル版) ---- */
@@ -150,6 +155,7 @@
 <div id="banner-layer"></div>
 
 <div id="fabs">
+  <button class="fab" id="fabNorth" title="北を上にする" hidden><svg viewBox="0 0 24 24" style="stroke:none"><path d="M12 2l4 10h-8z" fill="#d32f2f"/><path d="M12 22l-4-10h8z" fill="#9aa2ad"/></svg></button>
   <button class="fab" id="fabLoc" title="現在地"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg></button>
   <button class="fab" id="fabTrk" title="軌跡を隠す/表示"><svg viewBox="0 0 24 24"><path d="M4 18c3-6 6 2 9-4s4-6 7-8"/><circle cx="4" cy="18" r="1.5"/><circle cx="20" cy="6" r="1.5"/></svg></button>
   <label class="fab primary" for="fGpx" title="GPXを読み込む"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></label>
@@ -164,6 +170,7 @@
     <button class="tab" data-p="pTracks">軌跡</button>
     <button class="tab more" data-p="pMore" aria-label="その他">⋯</button>
   </div>
+  <div id="addBar"><button class="add" id="btnAdd">＋ 路線を追加</button></div>
   <div class="pane on" id="pRoutes"></div>
   <div class="pane" id="pTracks"></div>
   <div class="pane" id="pMore">
@@ -295,6 +302,7 @@ let toastT;
 function toast(s, ms) {
   const t = $('toast'); t.textContent = s; t.classList.add('on');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('on'), ms || Math.min(6000, 1800 + s.length * 60));
+  Banner.kick();
 }
 
 // ---------- バナー ----------
@@ -302,7 +310,8 @@ const Banner = (() => {
   const layer = $('banner-layer'); const q = []; let busy = false;
   function show(o) { q.push(o); if (!busy) next(); }
   function next() {
-    if (q.length && document.getElementById('cat').classList.contains('on')) { busy = true; setTimeout(next, 400); return; }  // 路線の一覧を閉じてから出す
+    // 路線の一覧を閉じてから、お知らせが消えてから出す
+    if (q.length && ($('cat').classList.contains('on') || $('toast').classList.contains('on'))) { busy = true; setTimeout(next, 300); return; }
     const o = q.shift(); if (!o) { busy = false; return; } busy = true;
     const step = 90, dur = 700, hold = 2500;
     const chars = [...(o.label ? o.label + ': ' + o.title : o.title)];
@@ -313,7 +322,9 @@ const Banner = (() => {
     setTimeout(() => el.classList.add('out'), sweep + hold);
     setTimeout(() => { el.remove(); setTimeout(next, 250); }, sweep * 2 + hold);
   }
-  return { show };
+  // 待っている演出があれば、条件がそろうまで見張る
+  function kick() { if (q.length && !busy) next(); }
+  return { show, kick };
 })();
 
 // ---------- 判定のための計算 ----------
@@ -598,11 +609,10 @@ function render() {
       <div class="prog"><span class="t num">${pad3(done)}/${pad3(total)}・${pct.padStart(5, ' ')}%</span>
         <div class="gauge"><div style="width:${pct}%"></div></div>${nEx ? `<span class="ex">除外 ${nEx}</span>` : ''}</div>
       <div class="units"><div class="cap">▼通過自治体</div><ul>${items}</ul>
-        <div class="tools"><button class="rev">起点と終点を入れ替える</button></div></div>
+        <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="clr">この路線の記録を消す</button></div></div>
     </div>`;
   }
   html += routes.length ? '' : '<div class="empty">走る予定の路線を「＋ 路線を追加」から選んでください。</div>';
-  html += `<button class="add" id="btnAdd">＋ 路線を追加</button>`;
   box.innerHTML = html;
   box.scrollTop = scroll;
 
@@ -621,9 +631,14 @@ function render() {
       save(); render();
     }));
     div.querySelector('.rev').addEventListener('click', () => { const R = rec(r.ref); R.reversed = !R.reversed; save(); render(); });
+    div.querySelector('.clr').addEventListener('click', () => {
+      if (!confirm(`${r.name}の走破記録を消します。よろしいですか?\n(除外と並び順の設定は残ります)`)) return;
+      const R = rec(r.ref); R.dist = {}; R.lastTime = null; save(); render();
+      toast(`${r.name}の記録を消しました`);
+    });
   });
-  $('btnAdd').addEventListener('click', openCatalog);
 }
+$('btnAdd').addEventListener('click', openCatalog);
 
 // ---------- 軌跡(GPX) ----------
 const tracks = [];   // { id, fn, pts, t0, t1, km, color, pending, shown }
@@ -695,16 +710,18 @@ function judgeTracks(list) {
     t.pending = false; styleTrack(t);
   }
   save(); render();
-  const msgs = [];
+  const msgs = [], completed = [];
   for (const r of routes) {
     const nowDone = r.units.filter(u => stateOf(r, u) === 2);
     const fresh = nowDone.filter(u => !before.get(r.ref).has(u.id));
     const total = targets(r).length;
     if (fresh.length) msgs.push(`${r.name}:新たに走破 ${fresh.length} 町村`);
-    if (fresh.length && total && nowDone.filter(u => !isEx(r, u)).length === total) Banner.show({ label: '完了', title: r.name });
+    if (fresh.length && total && nowDone.length === total) completed.push(r.name);
   }
   if (noTime) msgs.push('※時刻の無い点があるため、重複読み込みの防止は効きません。');
   toast(msgs.length ? msgs.join('\n') : '判定しました(新たに走破した町村はありません)');
+  // 完了の演出は、上のお知らせが消えてから出る
+  completed.forEach(n => Banner.show({ label: '完了', title: n }));
   renderTracks();
 }
 
@@ -923,6 +940,7 @@ $('btnReset').addEventListener('click', () => {
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.p === id));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === id));
+  $('addBar').hidden = id !== 'pRoutes';
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   showTab(t.dataset.p); if (sheetH() < 200) setSheet(innerHeight * .5);
@@ -960,11 +978,21 @@ map.on('click', e => {
   if (!fs.length) return;
   const msgs = [...new Set(fs.map(f => {
     const r = routes.find(r => r.src === f.source);
-    const others = String(f.properties.dup_refs || '').split(';').filter(Boolean).map(refName).join('・');
-    return `${r ? r.name : ''}の重用区間:${others}`;
+    const others = String(f.properties.dup_refs || '').split(';').filter(Boolean).map(x => '(重)' + refName(x));
+    return [r ? r.name : ''].concat(others).join('\n');
   }))];
-  toast(msgs.join('\n'));
+  toast(msgs.join('\n\n'));
 });
+
+// ---------- 方位磁針(地図が回転・傾いているときだけ出す) ----------
+function updateNorth() {
+  const b = map.getBearing(), p = map.getPitch();
+  const off = Math.abs(b) > 0.5 || p > 0.5;
+  $('fabNorth').hidden = !off;
+  $('fabNorth').querySelector('svg').style.transform = `rotate(${-b}deg)`;
+}
+map.on('rotate', updateNorth); map.on('pitch', updateNorth);
+$('fabNorth').addEventListener('click', () => map.easeTo({ bearing: 0, pitch: 0, duration: 400 }));
 
 // ---------- 現在地 ----------
 let watchId = null, meMarker = null, firstFix = false;
