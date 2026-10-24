@@ -9,5 +9,15 @@
   "prefs": [
    "山形県"
   ]
+ },
+ {
+  "ref": "06-017",
+  "name": "山形県道17号(山形白鷹線)",
+  "file": "routes/r06_017.geojson",
+  "size_kb": 65,
+  "hash": "4793f41db8ad",
+  "prefs": [
+   "山形県"
+  ]
  }
 ]
