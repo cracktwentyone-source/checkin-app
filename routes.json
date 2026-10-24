@@ -19,5 +19,15 @@
   "prefs": [
    "山形県"
   ]
+ },
+ {
+  "ref": "06-174",
+  "name": "山形県道174号",
+  "file": "routes/r06_174.geojson",
+  "size_kb": 14,
+  "hash": "b6737befcf57",
+  "prefs": [
+   "山形県"
+  ]
  }
 ]
