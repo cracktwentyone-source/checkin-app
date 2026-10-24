@@ -35,7 +35,8 @@
     border-radius:16px 16px 0 0; box-shadow:0 -2px 14px rgba(0,0,0,.18);
     display:flex; flex-direction:column; height:160px; transition:height .25s ease; }
   #sheet.dragging { transition:none; }
-  #grab { padding:8px 0 4px; cursor:grab; touch-action:none; }
+  #sheetHead { touch-action:none; }
+  #grab { padding:12px 0 12px; cursor:grab; }
   #grab i { display:block; width:40px; height:5px; border-radius:3px; background:#cfd4da; margin:0 auto; }
   .tabs { display:flex; gap:4px; padding:0 12px 8px; border-bottom:1px solid var(--line); }
   .tab { flex:1; border:none; background:none; padding:8px 0; border-radius:8px; font-size:14px; color:var(--sub); cursor:pointer; position:relative; }
@@ -86,6 +87,20 @@
     border:1.5px dashed #c8ced6; border-radius:10px; color:var(--blue); background:none; width:100%; cursor:pointer; font-size:14px; }
   .units .tools .clr { color:var(--red); }
   #fabNorth[hidden] { display:none; }
+  /* 選んだ町村の行 */
+  .u.sel { background:#fff6d6; }
+  .u .nm { cursor:pointer; }
+  /* 長押しで並べ替え */
+  .rhead { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
+  .route.lifting { position:relative; z-index:5; background:#fff; box-shadow:0 6px 18px rgba(0,0,0,.22); border-radius:10px; }
+  #pRoutes.reordering .route:not(.lifting) { transition:transform .15s; }
+  /* 背景の切り替え */
+  #layerPanel { position:absolute; right:64px; top:calc(12px + env(safe-area-inset-top)); z-index:6; background:#fff; border-radius:12px;
+    box-shadow:0 4px 16px rgba(0,0,0,.22); padding:10px 0; min-width:180px; }
+  #layerPanel[hidden] { display:none; }
+  #layerPanel h3 { font-size:12px; color:var(--sub); margin:0; padding:2px 14px 6px; font-weight:600; }
+  #layerPanel label { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:14px; cursor:pointer; }
+  #layerPanel input { accent-color:var(--blue); margin:0; }
   #fabNorth svg { transition:transform .1s linear; }
 
   /* ---- 軌跡タブ ---- */
@@ -120,6 +135,13 @@
   #cat header h2 { font-size:17px; margin:0; flex:1; }
   #catQ { margin:10px 12px; padding:10px 12px; border-radius:10px; border:none; background:var(--bg2); font-size:16px; }
   #catList { flex:1; overflow-y:auto; padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+  #catTools { display:flex; flex-wrap:wrap; gap:6px 8px; padding:0 12px 10px; border-bottom:1px solid var(--line); }
+  .seg { display:inline-flex; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .seg button { border:none; background:#fff; padding:6px 10px; font-size:13px; color:var(--sub); cursor:pointer; }
+  .seg button + button { border-left:1px solid var(--line); }
+  .seg button.on { background:var(--blue-soft); color:var(--blue); font-weight:600; }
+  #catTools select { border:1px solid var(--line); border-radius:8px; background:#fff; padding:6px 8px; font-size:13px; color:var(--ink); }
+  .ci .tx small .st { margin-left:6px; }
   .sech { position:sticky; top:0; z-index:1; background:#fff; font-size:12px; color:var(--sub); font-weight:600; padding:10px 16px 6px; border-bottom:1px solid var(--line); }
   .ci { display:flex; align-items:center; gap:12px; padding:10px 16px; border-bottom:1px solid #f1f2f4; }
   .ci .sgw { flex:0 0 32px; display:grid; place-items:center; }
@@ -156,19 +178,26 @@
 
 <div id="fabs">
   <button class="fab" id="fabNorth" title="北を上にする" hidden><svg viewBox="0 0 24 24" style="stroke:none"><path d="M12 2l4 10h-8z" fill="#d32f2f"/><path d="M12 22l-4-10h8z" fill="#9aa2ad"/></svg></button>
+  <button class="fab" id="fabLayer" title="背景の地図"><svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
   <button class="fab" id="fabLoc" title="現在地"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg></button>
   <button class="fab" id="fabTrk" title="軌跡を隠す/表示"><svg viewBox="0 0 24 24"><path d="M4 18c3-6 6 2 9-4s4-6 7-8"/><circle cx="4" cy="18" r="1.5"/><circle cx="20" cy="6" r="1.5"/></svg></button>
   <label class="fab primary" for="fGpx" title="GPXを読み込む"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></label>
+</div>
+<div id="layerPanel" hidden>
+  <h3>背景</h3>
+  <div id="baseList"></div>
 </div>
 <input id="fGpx" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
 <input id="fRoute" type="file" accept=".geojson,.json" multiple>
 
 <div id="sheet">
+  <div id="sheetHead">
   <div id="grab"><i></i></div>
   <div class="tabs">
     <button class="tab on" data-p="pRoutes">路線</button>
     <button class="tab" data-p="pTracks">軌跡</button>
     <button class="tab more" data-p="pMore" aria-label="その他">⋯</button>
+  </div>
   </div>
   <div id="addBar"><button class="add" id="btnAdd">＋ 路線を追加</button></div>
   <div class="pane on" id="pRoutes"></div>
@@ -189,6 +218,18 @@
     <h2>路線を追加</h2>
   </header>
   <input id="catQ" type="search" placeholder="番号・路線名で探す(例:112、山形)">
+  <div id="catTools">
+    <div class="seg" id="fKind"><button data-v="all">すべて</button><button data-v="nat">国道</button><button data-v="pref">県道</button></div>
+    <select id="fPref"><option value="">すべての都道府県</option></select>
+    <div class="seg" id="fState"><button data-v="all">すべて</button><button data-v="0">未着手</button><button data-v="1">途中</button><button data-v="2">完走</button></div>
+    <select id="fSort">
+      <option value="no">番号順</option>
+      <option value="pct_desc">達成率の高い順</option>
+      <option value="pct_asc">達成率の低い順</option>
+      <option value="km_desc">距離の長い順</option>
+      <option value="km_asc">距離の短い順</option>
+    </select>
+  </div>
   <div id="catList"></div>
 </div>
 
@@ -295,6 +336,8 @@ function rec(ref) { return store[ref] || (store[ref] = { dist: {}, lastTime: nul
 let app = { active: [], hashes: {} };
 try { app = Object.assign(app, JSON.parse(localStorage.getItem(APP_KEY) || '{}')); } catch (e) {}
 app.hashes = app.hashes || {};
+app.prog = app.prog || {};
+app.cat = Object.assign({ kind: 'all', pref: '', state: 'all', sort: 'no' }, app.cat || {});
 function saveApp() { try { localStorage.setItem(APP_KEY, JSON.stringify(app)); } catch (e) {} }
 
 // ---------- 小さなお知らせ ----------
@@ -412,13 +455,22 @@ function parseGpx(text) {
 }
 
 // ---------- 地図 ----------
+// 背景の地図(OSMの地図画像は、まとめて保存しないこと・著作権表示が必要。https://operations.osmfoundation.org/policies/tiles/)
+const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>';
+const BASES = [
+  { id: 'pale',  name: '地理院 淡色', url: 'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png', maxzoom: 18, attr: GSI_ATTR },
+  { id: 'std',   name: '地理院 標準', url: 'https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png', maxzoom: 18, attr: GSI_ATTR },
+  { id: 'osm',   name: 'OpenStreetMap', url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png', maxzoom: 19,
+    attr: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors' },
+  { id: 'photo', name: '地理院 写真', url: 'https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg', maxzoom: 18, attr: GSI_ATTR },
+];
+if (!BASES.some(b => b.id === app.base)) app.base = 'pale';
 const map = new maplibregl.Map({
   container: 'map', attributionControl: { compact: true },
   style: {
     version: 8,
-    sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 18,
-      attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a> | 路線:© OpenStreetMap contributors' } },
-    layers: [{ id: 'gsi', type: 'raster', source: 'gsi' }]
+    sources: Object.fromEntries(BASES.map(b => [b.id, { type: 'raster', tiles: [b.url], tileSize: 256, maxzoom: b.maxzoom, attribution: b.attr }])),
+    layers: BASES.map(b => ({ id: 'base-' + b.id, type: 'raster', source: b.id, layout: { visibility: b.id === app.base ? 'visible' : 'none' } }))
   },
   center: [140.0, 38.5], zoom: 7
 });
@@ -456,23 +508,29 @@ async function addRoute(gj, label, file, opt = {}) {
                          [Infinity, Infinity, -Infinity, -Infinity]);
   const src = 'route-' + (srcSeq++);
   const before = firstTrackLayer();
-  map.addSource(src, { type: 'geojson', data: gj, promoteId: 'match_id' });
+  map.addSource(src, { type: 'geojson', data: gj, promoteId: 'match_id', attribution: '路線:© OpenStreetMap contributors' });
   map.addLayer({ id: src + '-area', type: 'fill', source: src, filter: ['==', ['get', 'kind'], 'area'],
-    paint: { 'fill-color': ['match', ['coalesce', ['feature-state', 'st'], 0], 2, '#1976d2', 1, '#64b5f6', 3, '#fff8e1', '#9e9e9e'],
-             'fill-opacity': ['match', ['coalesce', ['feature-state', 'st'], 0], 2, 0.45, 1, 0.35, 3, 0.6, 0.15] } }, before);
+    paint: { 'fill-color': ['case', ['boolean', ['feature-state', 'sel'], false], '#ffd54f',
+               ['match', ['coalesce', ['feature-state', 'st'], 0], 2, '#1976d2', 1, '#64b5f6', 3, '#fff8e1', '#9e9e9e']],
+             'fill-opacity': ['case', ['boolean', ['feature-state', 'sel'], false], 0.6,
+               ['match', ['coalesce', ['feature-state', 'st'], 0], 2, 0.45, 1, 0.35, 3, 0.6, 0.15]] } }, before);
   map.addLayer({ id: src + '-area-line', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
     paint: { 'line-color': '#616161', 'line-width': 0.8 } }, before);
-  // 路線の線:単独区間は赤、重用区間(自分より番号の小さい路線と重なる区間)は紫
+  map.addLayer({ id: src + '-sel', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
+    paint: { 'line-color': '#ffb300', 'line-width': ['case', ['boolean', ['feature-state', 'sel'], false], 3.5, 0] } }, before);
+  // 路線の線:単独区間はやわらかい赤、重用区間(自分より番号の小さい路線と重なる区間)はやわらかい紫
   const isDup = ['all', ['==', ['get', 'kind'], 'line'], ['>', ['length', ['coalesce', ['get', 'dup_refs'], '']], 0]];
   map.addLayer({ id: src + '-line', type: 'line', source: src,
     filter: ['all', ['==', ['get', 'kind'], 'line'], ['==', ['length', ['coalesce', ['get', 'dup_refs'], '']], 0]],
-    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#d32f2f', 'line-width': 2.5 } }, before);
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#e57373', 'line-width': 3 } }, before);
   map.addLayer({ id: src + '-dup', type: 'line', source: src, filter: isDup,
-    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#8e24aa', 'line-width': 4 } }, before);
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#9c6ade', 'line-width': 4 } }, before);
 
+  const areaBox = {};
+  for (const f of feats) if (f.properties.kind === 'area') areaBox[String(f.properties.match_id)] = bboxOf(polysOf(f.geometry));
   const startF = feats.find(f => f.properties.kind === 'start');
   const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
-  const route = { ref, name, km, ovKm, file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
+  const route = { ref, name, km, ovKm, areaBox, file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
                   order: orderUnits(u2, startPt) };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
@@ -486,7 +544,8 @@ async function addRoute(gj, label, file, opt = {}) {
   return route;
 }
 function dropRoute(r) {
-  for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-line', r.src + '-dup']) if (map.getLayer(id)) map.removeLayer(id);
+  if (sel && sel.ref === r.ref) sel = null;
+  for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-sel', r.src + '-line', r.src + '-dup']) if (map.getLayer(id)) map.removeLayer(id);
   if (map.getSource(r.src)) map.removeSource(r.src);
   const i = routes.indexOf(r); if (i >= 0) routes.splice(i, 1);
   return i;
@@ -585,6 +644,7 @@ function render() {
     }
     const total = targets(r).length, nEx = r.units.length - total;
     const p = total ? done / total : 0;
+    app.prog[r.ref] = { done, total };   // 路線の一覧の「状態」「達成率順」に使う
     const pct = (Math.floor(p * 1000) / 10).toFixed(1);
     const R = rec(r.ref);
     const list = R.reversed ? [...r.order].reverse() : r.order;
@@ -595,7 +655,8 @@ function render() {
       lastG = u.grp;
       const right = st === 3 ? '除外' : st === 2 ? '<span class="ok">✓</span>'
         : `<span class="d num">${Math.round(d)} / ${Math.round(u.th)} m</span>`;
-      return head + `<li class="u ${st === 3 ? 'ex' : st === 1 ? 'part' : ''}"><span class="no num">${pad3(i + 1)}</span>` +
+      const isSel = sel && sel.ref === r.ref && sel.id === u.id;
+      return head + `<li class="u ${st === 3 ? 'ex' : st === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
         `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span>` +
         `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${st === 3 ? '戻す' : '除外'}</button></span></li>`;
     }).join('');
@@ -613,12 +674,14 @@ function render() {
     </div>`;
   }
   html += routes.length ? '' : '<div class="empty">走る予定の路線を「＋ 路線を追加」から選んでください。</div>';
+  saveApp();
   box.innerHTML = html;
   box.scrollTop = scroll;
 
   box.querySelectorAll('.route').forEach(div => {
     const r = routes.find(x => x.ref === div.dataset.ref);
     div.querySelector('.rhead').addEventListener('click', e => {
+      if (reorder.justDropped) return;
       if (e.target.closest('.rm')) { removeRoute(r); return; }
       const R = rec(r.ref); R.open = !R.open; save(); render();
       if (R.open && sheetH() < innerHeight * .45) setSheet(innerHeight * .6);
@@ -630,6 +693,10 @@ function render() {
       if (R.ex[u.id] === u.fileEx) delete R.ex[u.id];   // ファイルの設定と同じなら上書きを消す
       save(); render();
     }));
+    div.querySelectorAll('.u').forEach(li => li.addEventListener('click', e => {
+      if (e.target.closest('.exb')) return;
+      selectUnit(r, li.dataset.id);
+    }));
     div.querySelector('.rev').addEventListener('click', () => { const R = rec(r.ref); R.reversed = !R.reversed; save(); render(); });
     div.querySelector('.clr').addEventListener('click', () => {
       if (!confirm(`${r.name}の走破記録を消します。よろしいですか?\n(除外と並び順の設定は残ります)`)) return;
@@ -639,6 +706,103 @@ function render() {
   });
 }
 $('btnAdd').addEventListener('click', openCatalog);
+
+// ---------- 町村を選んで地図で目立たせる(1つだけ) ----------
+let sel = null;   // { ref, id }
+function selectUnit(r, id) {
+  if (sel) { const old = routes.find(x => x.ref === sel.ref); if (old) map.setFeatureState({ source: old.src, id: sel.id }, { sel: false }); }
+  if (sel && sel.ref === r.ref && sel.id === id) { sel = null; render(); return; }
+  sel = { ref: r.ref, id };
+  map.setFeatureState({ source: r.src, id }, { sel: true });
+  render();
+  // 画面(パネルに隠れていない部分)の外なら、見える位置まで地図を動かす
+  const b = r.areaBox[id] || (r.unitById[id] && r.unitById[id].bbox);
+  if (!b) return;
+  const H = map.getContainer().clientHeight, W = map.getContainer().clientWidth, bottom = H - sheetH();
+  const tl = map.unproject([0, 0]), br = map.unproject([W, Math.max(40, bottom)]);
+  const inView = b[0] >= tl.lng && b[2] <= br.lng && b[1] >= br.lat && b[3] <= tl.lat;
+  if (!inView) map.fitBounds([[b[0], b[1]], [b[2], b[3]]],
+    { padding: { top: 50, left: 30, right: 70, bottom: sheetH() + 30 }, maxZoom: Math.max(map.getZoom(), 11), duration: 500 });
+}
+
+// ---------- 長押しで路線の順番を入れ替える ----------
+const reorder = { timer: null, el: null, ref: null, y0: 0, x0: 0, offset: 0, lastY: 0, raf: 0, justDropped: false };
+(() => {
+  const pane = $('pRoutes');
+  pane.addEventListener('pointerdown', e => {
+    const head = e.target.closest('.rhead');
+    if (!head || e.target.closest('.rm') || e.button > 0) return;
+    const card = head.closest('.route');
+    reorder.ref = card.dataset.ref; reorder.x0 = e.clientX; reorder.y0 = e.clientY;
+    clearTimeout(reorder.timer);
+    reorder.timer = setTimeout(() => startDrag(e.pointerId), 450);
+  });
+  const cancelHold = () => { clearTimeout(reorder.timer); reorder.timer = null; };
+  pane.addEventListener('pointermove', e => {
+    if (reorder.el) return;
+    if (reorder.timer && Math.hypot(e.clientX - reorder.x0, e.clientY - reorder.y0) > 8) cancelHold();
+  });
+  pane.addEventListener('pointerup', cancelHold); pane.addEventListener('pointercancel', cancelHold);
+  // 並べ替え中は一覧がスクロールしないようにする
+  pane.addEventListener('touchmove', e => { if (reorder.el) e.preventDefault(); }, { passive: false });
+
+  function startDrag(pid) {
+    reorder.timer = null;
+    // 自治体リストは全部閉じる
+    let changed = false;
+    for (const r of routes) { const R = rec(r.ref); if (R.open) { R.open = false; changed = true; } }
+    if (changed) { save(); render(); }
+    const el = pane.querySelector(`.route[data-ref="${CSS.escape(reorder.ref)}"]`);
+    if (!el) return;
+    reorder.el = el; el.classList.add('lifting'); pane.classList.add('reordering');
+    const rc = el.getBoundingClientRect();
+    reorder.offset = reorder.y0 - rc.top; reorder.lastY = reorder.y0;
+    try { navigator.vibrate && navigator.vibrate(15); } catch (_) {}
+    document.addEventListener('pointermove', onMove, { passive: false });
+    document.addEventListener('pointerup', onUp); document.addEventListener('pointercancel', onUp);
+    autoScroll();
+  }
+  function place() {
+    const el = reorder.el; if (!el) return;
+    el.style.transform = '';
+    const nat = el.getBoundingClientRect().top;
+    // 指の位置に合わせて、ほかの路線との順番を入れ替える
+    const cards = [...pane.querySelectorAll('.route')].filter(c => c !== el);
+    const y = reorder.lastY;
+    let beforeEl = null;
+    for (const c of cards) { const r = c.getBoundingClientRect(); if (y < r.top + r.height / 2) { beforeEl = c; break; } }
+    const nextEl = el.nextElementSibling && el.nextElementSibling.classList.contains('route') ? el.nextElementSibling : null;
+    if (beforeEl !== nextEl) {
+      if (beforeEl) pane.insertBefore(el, beforeEl);
+      else { const last = cards[cards.length - 1]; if (last) last.after(el); }
+    }
+    const nat2 = el.getBoundingClientRect().top;
+    el.style.transform = `translateY(${y - reorder.offset - nat2}px)`;
+  }
+  function onMove(e) { if (!reorder.el) return; e.preventDefault(); reorder.lastY = e.clientY; place(); }
+  function autoScroll() {
+    if (!reorder.el) return;
+    const r = pane.getBoundingClientRect(), y = reorder.lastY, edge = 40;
+    if (y < r.top + edge) { pane.scrollTop -= 8; place(); }
+    else if (y > r.bottom - edge) { pane.scrollTop += 8; place(); }
+    reorder.raf = requestAnimationFrame(autoScroll);
+  }
+  function onUp() {
+    document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); document.removeEventListener('pointercancel', onUp);
+    cancelAnimationFrame(reorder.raf);
+    const el = reorder.el; if (!el) return;
+    el.classList.remove('lifting'); el.style.transform = ''; pane.classList.remove('reordering');
+    reorder.el = null;
+    // 新しい順番を保存する(次に開いたときもこの順で読み込む)
+    const order = [...pane.querySelectorAll('.route')].map(c => c.dataset.ref);
+    routes.sort((a, b) => order.indexOf(a.ref) - order.indexOf(b.ref));
+    const files = routes.map(r => r.file).filter(Boolean);
+    app.active = files.concat(app.active.filter(f => !files.includes(f)));
+    saveApp();
+    reorder.justDropped = true; setTimeout(() => reorder.justDropped = false, 80);
+    render();
+  }
+})();
 
 // ---------- 軌跡(GPX) ----------
 const tracks = [];   // { id, fn, pts, t0, t1, km, color, pending, shown }
@@ -850,6 +1014,29 @@ async function syncSaved() {
   if (updated.length) { toast('路線ファイルを新しくしました:' + updated.join('、')); renderCatalog(); }
 }
 
+// 路線の一覧の絞り込み・並べ替え
+function prefsOf(c) {
+  if (Array.isArray(c.prefs) && c.prefs.length) return c.prefs;
+  const i = refInfo(c.ref); return i && i.kind === 'pref' ? [i.pref] : [];
+}
+function catPct(c) { const g = app.prog[c.ref]; return g && g.total ? g.done / g.total * 100 : 0; }
+function catState(c) { const g = app.prog[c.ref]; if (!g || !g.total || !g.done) return 0; return g.done >= g.total ? 2 : 1; }
+function syncCatTools() {
+  const C = app.cat;
+  for (const [id, key] of [['fKind', 'kind'], ['fState', 'state']])
+    $(id).querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.v === C[key]));
+  const prefs = [...new Set(catalog.flatMap(prefsOf))].sort((a, b) => PREFS.indexOf(a) - PREFS.indexOf(b));
+  const sel = $('fPref');
+  const want = '<option value="">すべての都道府県</option>' + prefs.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join('');
+  if (sel.dataset.sig !== want) { sel.innerHTML = want; sel.dataset.sig = want; }
+  if (C.pref && !prefs.includes(C.pref)) C.pref = '';
+  sel.value = C.pref; $('fSort').value = C.sort;
+}
+for (const [id, key] of [['fKind', 'kind'], ['fState', 'state']])
+  $(id).addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; app.cat[key] = b.dataset.v; saveApp(); renderCatalog(); });
+$('fPref').addEventListener('change', e => { app.cat.pref = e.target.value; saveApp(); renderCatalog(); });
+$('fSort').addEventListener('change', e => { app.cat.sort = e.target.value; saveApp(); renderCatalog(); });
+
 function openCatalog() {
   $('cat').classList.add('on');
   if (!catalog.length && !catLoading) loadCatalog();
@@ -866,26 +1053,50 @@ async function renderCatalog() {
       `<div class="caterr">路線の一覧(routes.json)を読めませんでした。「⋯」の「ファイルから路線を読み込む」で直接開けます。<small>${esc(catErr)}</small></div>`;
     return;
   }
+  syncCatTools();
   const q = $('catQ').value.trim();
   const saved = await cachedFiles();
-  const rows = catalog.filter(c => !q || (c.name + ' ' + c.ref + ' ' + (refInfo(c.ref) || {}).no).includes(q));
-  const groups = new Map();
-  for (const c of rows) {
+  const C = app.cat;
+  const rows = catalog.filter(c => {
+    if (q && !(c.name + ' ' + c.ref + ' ' + (refInfo(c.ref) || {}).no).includes(q)) return false;
     const i = refInfo(c.ref);
-    const key = !i ? '99' : i.kind === 'nat' ? '00' : String(i.pc).padStart(2, '0');
-    const title = !i ? 'その他' : i.kind === 'nat' ? '国道' : i.pref + '道';
-    if (!groups.has(key)) groups.set(key, { title, list: [] });
-    groups.get(key).list.push(c);
+    if (C.kind !== 'all' && (!i || i.kind !== C.kind)) return false;
+    if (C.pref && !prefsOf(c).includes(C.pref)) return false;
+    if (C.state !== 'all' && String(catState(c)) !== C.state) return false;
+    return true;
+  });
+  const groups = new Map();
+  if (C.sort === 'no') {
+    for (const c of rows) {
+      const i = refInfo(c.ref);
+      const key = !i ? '99' : i.kind === 'nat' ? '00' : String(i.pc).padStart(2, '0');
+      const title = !i ? 'その他' : i.kind === 'nat' ? '国道' : i.pref + '道';
+      if (!groups.has(key)) groups.set(key, { title, list: [] });
+      groups.get(key).list.push(c);
+    }
+  } else {
+    const dir = C.sort.endsWith('desc') ? -1 : 1;
+    const val = C.sort.startsWith('pct') ? catPct : c => (c.km != null ? +c.km : null);
+    const list = [...rows].sort((a, b) => {
+      const va = val(a), vb = val(b);
+      if (va == null && vb == null) return a.ref < b.ref ? -1 : 1;
+      if (va == null) return 1; if (vb == null) return -1;   // 距離が未入力の路線は最後
+      return (va - vb) * dir || (a.ref < b.ref ? -1 : 1);
+    });
+    groups.set('all', { title: '', list });
   }
   const keys = [...groups.keys()].sort();
   box.innerHTML = keys.map(k => {
     const g = groups.get(k);
-    return `<div class="sech">${esc(g.title)}</div>` + g.list.map(c => {
+    return (g.title ? `<div class="sech">${esc(g.title)}</div>` : '') + g.list.map(c => {
       const on = routes.some(r => r.file === c.file);
       const sv = saved.has(absPath(c.file));
       const sz = c.size_kb ? (c.size_kb >= 1024 ? (c.size_kb / 1024).toFixed(1) + ' MB' : c.size_kb + ' KB') : '';
-      return `<div class="ci"><div class="sgw">${signFor(c.ref, null, 30)}</div>
-        <div class="tx"><b>${esc(c.name)}</b><small class="num">${sz}${sv ? '・端末に保存済み' : ''}</small></div>
+      const pg = app.prog[c.ref], pc = catPct(c);
+      const stTxt = pg && pg.total ? `・${pad3(pg.done)}/${pad3(pg.total)}` : '';
+      const kmTxt = c.km != null ? `・${(+c.km).toFixed(1)} km` : '';
+      return `<div class="ci"><div class="sgw">${signFor(c.ref, pc > 0 ? pc / 100 : null, 30)}</div>
+        <div class="tx"><b>${esc(c.name)}</b><small class="num">${sz}${kmTxt}${stTxt}${sv ? '・保存済み' : ''}</small></div>
         ${hasCache() ? `<button class="dl ${sv ? 'saved' : ''}" data-f="${esc(c.file)}" title="${sv ? '保存を消す' : '端末に保存'}">
           <svg viewBox="0 0 24 24">${sv ? '<path d="M5 12l4 4 10-10"/>' : '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'}</svg></button>` : ''}
         <button class="use ${on ? 'on' : ''}" data-f="${esc(c.file)}">${on ? '使用中' : '使う'}</button></div>`;
@@ -951,31 +1162,40 @@ const sheet = $('sheet');
 const snaps = () => [150, innerHeight * .5, innerHeight * .88];
 const sheetH = () => sheet.getBoundingClientRect().height;
 function setSheet(h) { sheet.style.height = Math.round(h) + 'px'; }
+// つまみの周りとタブの列のどこからでも引っぱれる。指が少しでも動いたら「引っぱり」として扱い、タブは押さない
 (() => {
-  let y0 = null, h0 = 0, moved = false;
-  const g = $('grab');
-  g.addEventListener('pointerdown', e => { y0 = e.clientY; h0 = sheetH(); moved = false; sheet.classList.add('dragging'); g.setPointerCapture(e.pointerId); });
-  g.addEventListener('pointermove', e => {
-    if (y0 == null) return; const dy = y0 - e.clientY; if (Math.abs(dy) > 4) moved = true;
-    setSheet(Math.max(110, Math.min(innerHeight * .92, h0 + dy)));
+  let y0 = null, h0 = 0, moved = false, fromGrab = false, suppress = false;
+  const head = $('sheetHead');
+  head.addEventListener('pointerdown', e => {
+    y0 = e.clientY; h0 = sheetH(); moved = false; fromGrab = !!e.target.closest('#grab');
+  });
+  head.addEventListener('pointermove', e => {
+    if (y0 == null) return;
+    const dy = y0 - e.clientY;
+    if (!moved && Math.abs(dy) > 6) { moved = true; sheet.classList.add('dragging'); try { head.setPointerCapture(e.pointerId); } catch (_) {} }
+    if (moved) setSheet(Math.max(110, Math.min(innerHeight * .92, h0 + dy)));
   });
   const end = () => {
-    if (y0 == null) return; sheet.classList.remove('dragging');
+    if (y0 == null) return;
+    sheet.classList.remove('dragging');
     const h = sheetH(), s = snaps();
-    if (!moved) { const i = s.findIndex(v => Math.abs(v - h) < 30); setSheet(s[(i + 1) % s.length]); }
-    else setSheet(s.reduce((a, b) => Math.abs(b - h) < Math.abs(a - h) ? b : a));
+    if (moved) { setSheet(s.reduce((a, b) => Math.abs(b - h) < Math.abs(a - h) ? b : a)); suppress = true; setTimeout(() => suppress = false, 50); }
+    else if (fromGrab) { const i = s.findIndex(v => Math.abs(v - h) < 30); setSheet(s[(i + 1) % s.length]); }
     y0 = null;
   };
-  g.addEventListener('pointerup', end); g.addEventListener('pointercancel', end);
+  head.addEventListener('pointerup', end); head.addEventListener('pointercancel', end);
+  // 引っぱった直後のクリック(タブの切り替え)は打ち消す
+  head.addEventListener('click', e => { if (suppress) { e.stopPropagation(); e.preventDefault(); } }, true);
 })();
 
 // ---------- 重用区間をタップ ----------
+// 重用区間の線以外をタップしたときは、パネルが伸びていれば引っ込める
 map.on('click', e => {
+  if (!$('layerPanel').hidden) { $('layerPanel').hidden = true; return; }
   const layers = routes.map(r => r.src + '-dup').filter(id => map.getLayer(id));
-  if (!layers.length) return;
   const p = e.point;
-  const fs = map.queryRenderedFeatures([[p.x - 12, p.y - 12], [p.x + 12, p.y + 12]], { layers });
-  if (!fs.length) return;
+  const fs = layers.length ? map.queryRenderedFeatures([[p.x - 12, p.y - 12], [p.x + 12, p.y + 12]], { layers }) : [];
+  if (!fs.length) { if (sheetH() > snaps()[0] + 10) setSheet(snaps()[0]); return; }
   const msgs = [...new Set(fs.map(f => {
     const r = routes.find(r => r.src === f.source);
     const others = String(f.properties.dup_refs || '').split(';').filter(Boolean).map(x => '(重)' + refName(x));
@@ -983,6 +1203,18 @@ map.on('click', e => {
   }))];
   toast(msgs.join('\n\n'));
 });
+
+// ---------- 背景の切り替え ----------
+function renderBases() {
+  $('baseList').innerHTML = BASES.map(b =>
+    `<label><input type="radio" name="base" value="${b.id}" ${b.id === app.base ? 'checked' : ''}>${esc(b.name)}</label>`).join('');
+  $('baseList').querySelectorAll('input').forEach(i => i.addEventListener('change', () => setBase(i.value)));
+}
+function setBase(id) {
+  app.base = id; saveApp();
+  for (const b of BASES) if (map.getLayer('base-' + b.id)) map.setLayoutProperty('base-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
+}
+$('fabLayer').addEventListener('click', e => { e.stopPropagation(); renderBases(); $('layerPanel').hidden = !$('layerPanel').hidden; });
 
 // ---------- 方位磁針(地図が回転・傾いているときだけ出す) ----------
 function updateNorth() {
