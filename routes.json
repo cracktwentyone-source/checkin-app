@@ -4,6 +4,10 @@
   "name": "国道112号",
   "file": "routes/r00_112.geojson",
   "size_kb": 272,
-  "hash": "3ea6e0aa7ad3"
+  "hash": "3ea6e0aa7ad3",
+  "km": 162.4,
+  "prefs": [
+   "山形県"
+  ]
  }
 ]
