@@ -67,6 +67,9 @@
   .route.open .units { display:block; }
   .units .cap { font-size:12px; color:var(--sub); padding:4px 16px 6px; }
   .units ul { list-style:none; margin:0; padding:0; }
+  /* 見出しは自分のグループの間だけ貼り付く(次のグループが来ると押し出される) */
+  .gwrap { list-style:none; }
+  .gwrap > ul { list-style:none; margin:0; padding:0; }
   .grp { position:sticky; top:0; z-index:1; background:#f0f3f7; color:var(--sub);
     font-size:12px; font-weight:600; padding:5px 16px; border-top:1px solid var(--line); }
   .u { display:flex; align-items:center; gap:10px; padding:9px 16px; border-top:1px solid #f1f2f4; font-size:14px; }
@@ -101,6 +104,14 @@
   #layerPanel h3 { font-size:12px; color:var(--sub); margin:0; padding:2px 14px 6px; font-weight:600; }
   #layerPanel label { display:flex; align-items:center; gap:10px; padding:8px 14px; font-size:14px; cursor:pointer; }
   #layerPanel input { accent-color:var(--blue); margin:0; }
+  #layerPanel h3 + h3, #layerPanel .sep { border-top:1px solid var(--line); margin-top:6px; padding-top:10px; }
+  /* 地図上の町村名 */
+  .lbl { pointer-events:none; font-size:12px; font-weight:600; color:#1d232b; white-space:nowrap;
+    text-shadow:-1px -1px 0 #fff, 1px -1px 0 #fff, -1px 1px 0 #fff, 1px 1px 0 #fff, 0 0 3px #fff; }
+  .lbl.ex { color:#8a9099; font-weight:500; }
+  .lbl.sel { font-size:15px; font-weight:800; color:#7a4a00; z-index:2; }
+  #map.nolabels .lbl { display:none; }
+  #map.nolabels .lbl.sel { display:block; }
   #fabNorth svg { transition:transform .1s linear; }
 
   /* ---- 軌跡タブ ---- */
@@ -177,15 +188,17 @@
 <div id="banner-layer"></div>
 
 <div id="fabs">
-  <button class="fab" id="fabNorth" title="北を上にする" hidden><svg viewBox="0 0 24 24" style="stroke:none"><path d="M12 2l4 10h-8z" fill="#d32f2f"/><path d="M12 22l-4-10h8z" fill="#9aa2ad"/></svg></button>
   <button class="fab" id="fabLayer" title="背景の地図"><svg viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/></svg></button>
   <button class="fab" id="fabLoc" title="現在地"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="7"/></svg></button>
   <button class="fab" id="fabTrk" title="軌跡を隠す/表示"><svg viewBox="0 0 24 24"><path d="M4 18c3-6 6 2 9-4s4-6 7-8"/><circle cx="4" cy="18" r="1.5"/><circle cx="20" cy="6" r="1.5"/></svg></button>
   <label class="fab primary" for="fGpx" title="GPXを読み込む"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></label>
+  <button class="fab" id="fabNorth" title="北を上にする" hidden><svg viewBox="0 0 24 24" style="stroke:none"><path d="M12 2l4 10h-8z" fill="#d32f2f"/><path d="M12 22l-4-10h8z" fill="#9aa2ad"/></svg></button>
 </div>
 <div id="layerPanel" hidden>
   <h3>背景</h3>
   <div id="baseList"></div>
+  <h3 class="sep">表示するもの</h3>
+  <label><input type="checkbox" id="optLabels"> 町村名</label>
 </div>
 <input id="fGpx" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
 <input id="fRoute" type="file" accept=".geojson,.json" multiple>
@@ -337,6 +350,7 @@ let app = { active: [], hashes: {} };
 try { app = Object.assign(app, JSON.parse(localStorage.getItem(APP_KEY) || '{}')); } catch (e) {}
 app.hashes = app.hashes || {};
 app.prog = app.prog || {};
+if (app.showLabels == null) app.showLabels = true;
 app.cat = Object.assign({ kind: 'all', pref: '', state: 'all', sort: 'no' }, app.cat || {});
 function saveApp() { try { localStorage.setItem(APP_KEY, JSON.stringify(app)); } catch (e) {} }
 
@@ -498,7 +512,7 @@ async function addRoute(gj, label, file, opt = {}) {
     const P = f.properties, polys = polysOf(f.geometry), c = centerOf(polys);
     return { id: String(P.match_id),
              disp: str(P.label) ? str(P.gun_name) + str(P.label) : str(P.name) || String(P.match_id),
-             yomi: str(P.label_yomi),
+             yomi: str(P.label_yomi), short: str(P.label) || str(P.name) || String(P.match_id),
              grp: [str(P.pref), str(P.group_name)].filter(Boolean).join(' '),
              len: +P.len_m || 0, th: +P.threshold_m || 500, polys, bbox: bboxOf(polys),
              seq: P.seq != null ? +P.seq : null, lon: c[0], lat: c[1],
@@ -526,11 +540,14 @@ async function addRoute(gj, label, file, opt = {}) {
   map.addLayer({ id: src + '-dup', type: 'line', source: src, filter: isDup,
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#9c6ade', 'line-width': 4 } }, before);
 
-  const areaBox = {};
-  for (const f of feats) if (f.properties.kind === 'area') areaBox[String(f.properties.match_id)] = bboxOf(polysOf(f.geometry));
+  const areaBox = {}, areaPolys = {};
+  for (const f of feats) if (f.properties.kind === 'area') {
+    const id = String(f.properties.match_id), ps = polysOf(f.geometry);
+    areaBox[id] = bboxOf(ps); areaPolys[id] = ps;
+  }
   const startF = feats.find(f => f.properties.kind === 'start');
   const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
-  const route = { ref, name, km, ovKm, areaBox, file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
+  const route = { ref, name, km, ovKm, areaBox, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
                   order: orderUnits(u2, startPt) };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
@@ -545,6 +562,7 @@ async function addRoute(gj, label, file, opt = {}) {
 }
 function dropRoute(r) {
   if (sel && sel.ref === r.ref) sel = null;
+  for (const id in (r.labels || {})) r.labels[id].marker.remove();
   for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-sel', r.src + '-line', r.src + '-dup']) if (map.getLayer(id)) map.removeLayer(id);
   if (map.getSource(r.src)) map.removeSource(r.src);
   const i = routes.indexOf(r); if (i >= 0) routes.splice(i, 1);
@@ -641,6 +659,8 @@ function render() {
     for (const u of r.units) {
       const st = stateOf(r, u); if (st === 2) done++;
       map.setFeatureState({ source: r.src, id: u.id }, { st });
+      const L = r.labels && r.labels[u.id];
+      if (L) { L.el.classList.toggle('ex', st === 3); L.el.classList.toggle('sel', !!(sel && sel.ref === r.ref && sel.id === u.id)); }
     }
     const total = targets(r).length, nEx = r.units.length - total;
     const p = total ? done / total : 0;
@@ -648,18 +668,22 @@ function render() {
     const pct = (Math.floor(p * 1000) / 10).toFixed(1);
     const R = rec(r.ref);
     const list = R.reversed ? [...r.order].reverse() : r.order;
-    let lastG = null;
-    const items = list.map((u, i) => {
+    // 続いている同じグループをひとまとめにする
+    const groups = [];
+    list.forEach((u, i) => {
+      const g = groups[groups.length - 1];
+      if (g && g.grp === u.grp) g.items.push([u, i]); else groups.push({ grp: u.grp, items: [[u, i]] });
+    });
+    const unitLi = (u, i) => {
       const d = R.dist[u.id] || 0, st = stateOf(r, u);
-      const head = u.grp && u.grp !== lastG ? `<li class="grp">${esc(u.grp)}</li>` : '';
-      lastG = u.grp;
       const right = st === 3 ? '除外' : st === 2 ? '<span class="ok">✓</span>'
         : `<span class="d num">${Math.round(d)} / ${Math.round(u.th)} m</span>`;
       const isSel = sel && sel.ref === r.ref && sel.id === u.id;
-      return head + `<li class="u ${st === 3 ? 'ex' : st === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
+      return `<li class="u ${st === 3 ? 'ex' : st === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
         `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span>` +
         `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${st === 3 ? '戻す' : '除外'}</button></span></li>`;
-    }).join('');
+    };
+    const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
     html += `<div class="route ${R.open ? 'open' : ''}" data-ref="${esc(r.ref)}">
       <div class="rhead"><span class="sgw">${signFor(r.ref, p, 30)}</span>
         <span class="nm">${esc(r.name)}</span>
@@ -707,6 +731,40 @@ function render() {
 }
 $('btnAdd').addEventListener('click', openCatalog);
 
+// ---------- 地図上の町村名 ----------
+// 名前を置く点:いちばん大きい面の、中ほどの高さで横に切ったとき、面の内側でいちばん長い区間の真ん中
+function labelPoint(polys) {
+  if (!polys || !polys.length) return null;
+  let best = null, bestA = -1;
+  for (const p of polys) { const b = bboxOf([p]); const a = (b[2] - b[0]) * (b[3] - b[1]); if (a > bestA) { bestA = a; best = p; } }
+  const bb = bboxOf([best]);
+  let pick = null, pickW = -1;
+  for (const f of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+    const y = bb[1] + (bb[3] - bb[1]) * f, xs = [];
+    for (const ring of best) for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const [x1, y1] = ring[i], [x2, y2] = ring[j];
+      if ((y1 > y) !== (y2 > y)) xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+    }
+    xs.sort((a, b) => a - b);
+    for (let k = 0; k + 1 < xs.length; k += 2) { const w = xs[k + 1] - xs[k]; if (w > pickW) { pickW = w; pick = [(xs[k] + xs[k + 1]) / 2, y]; } }
+  }
+  return pick || [(bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2];
+}
+function makeLabels(units, areaPolys) {
+  const out = {};
+  for (const u of units) {
+    const pt = labelPoint(areaPolys[u.id] || u.polys);
+    if (!pt) continue;
+    const el = document.createElement('div'); el.className = 'lbl'; el.textContent = u.short;
+    const marker = new maplibregl.Marker({ element: el, anchor: 'center' }).setLngLat(pt).addTo(map);
+    out[u.id] = { el, marker };
+  }
+  return out;
+}
+const LABEL_MINZOOM = 10;   // これより引いた地図では名前を出さない(選んだ町村だけは出す)
+function updateLabels() { $('map').classList.toggle('nolabels', !app.showLabels || map.getZoom() < LABEL_MINZOOM); }
+map.on('zoom', updateLabels); map.on('load', updateLabels);
+
 // ---------- 町村を選んで地図で目立たせる(1つだけ) ----------
 let sel = null;   // { ref, id }
 function selectUnit(r, id) {
@@ -715,14 +773,14 @@ function selectUnit(r, id) {
   sel = { ref: r.ref, id };
   map.setFeatureState({ source: r.src, id }, { sel: true });
   render();
-  // 画面(パネルに隠れていない部分)の外なら、見える位置まで地図を動かす
+  // いつもその町村へズームする。倍率は「パネルを中くらいまで上げたとき」に町村が収まる倍率で固定し、
+  // 位置はパネルに隠れていない部分の真ん中に来るようにする
   const b = r.areaBox[id] || (r.unitById[id] && r.unitById[id].bbox);
   if (!b) return;
-  const H = map.getContainer().clientHeight, W = map.getContainer().clientWidth, bottom = H - sheetH();
-  const tl = map.unproject([0, 0]), br = map.unproject([W, Math.max(40, bottom)]);
-  const inView = b[0] >= tl.lng && b[2] <= br.lng && b[1] >= br.lat && b[3] <= tl.lat;
-  if (!inView) map.fitBounds([[b[0], b[1]], [b[2], b[3]]],
-    { padding: { top: 50, left: 30, right: 70, bottom: sheetH() + 30 }, maxZoom: Math.max(map.getZoom(), 11), duration: 500 });
+  const cam = map.cameraForBounds([[b[0], b[1]], [b[2], b[3]]],
+    { padding: { top: 50, left: 30, right: 70, bottom: snaps()[1] + 30 }, maxZoom: 15 });
+  const zoom = cam && isFinite(cam.zoom) ? cam.zoom : map.getZoom();
+  map.easeTo({ center: [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2], zoom, offset: [-20, (20 - sheetH()) / 2], duration: 500 });
 }
 
 // ---------- 長押しで路線の順番を入れ替える ----------
@@ -1214,7 +1272,8 @@ function setBase(id) {
   app.base = id; saveApp();
   for (const b of BASES) if (map.getLayer('base-' + b.id)) map.setLayoutProperty('base-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
 }
-$('fabLayer').addEventListener('click', e => { e.stopPropagation(); renderBases(); $('layerPanel').hidden = !$('layerPanel').hidden; });
+$('fabLayer').addEventListener('click', e => { e.stopPropagation(); renderBases(); $('optLabels').checked = app.showLabels; $('layerPanel').hidden = !$('layerPanel').hidden; });
+$('optLabels').addEventListener('change', e => { app.showLabels = e.target.checked; saveApp(); updateLabels(); });
 
 // ---------- 方位磁針(地図が回転・傾いているときだけ出す) ----------
 function updateNorth() {
