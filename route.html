@@ -54,6 +54,8 @@
   .rhead .nm { font-size:17px; font-weight:700; min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rhead .km { font-size:12px; color:var(--faint); white-space:nowrap; text-align:right; }
   .rhead .km .ov.none { visibility:hidden; }
+  .rhead.hassub .nm { flex:0 0 auto; }
+  .rhead .km.sub { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .rhead .chev { color:var(--faint); transition:transform .2s; }
   .route.open .chev { transform:rotate(90deg); }
   .icon-btn { border:none; background:none; padding:6px; border-radius:6px; color:var(--faint); cursor:pointer; font-size:13px; white-space:nowrap; }
@@ -507,6 +509,7 @@ async function addRoute(gj, label, file, opt = {}) {
   const name = (line && line.properties.name) || ref;
   const numOf = k => { const f = lines.find(f => f.properties[k] != null && f.properties[k] !== ''); return f ? +f.properties[k] : null; };
   const km = numOf('length_km'), ovKm = numOf('overlap_km');
+  const subF = lines.find(f => str(f.properties.sub_name)), sub = subF ? str(subF.properties.sub_name) : '';
 
   const u2 = units.map(f => {
     const P = f.properties, polys = polysOf(f.geometry), c = centerOf(polys);
@@ -547,7 +550,7 @@ async function addRoute(gj, label, file, opt = {}) {
   }
   const startF = feats.find(f => f.properties.kind === 'start');
   const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
-  const route = { ref, name, km, ovKm, areaBox, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
+  const route = { ref, name, sub, km, ovKm, areaBox, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
                   order: orderUnits(u2, startPt) };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
@@ -640,6 +643,9 @@ function exclusionSql(r) {
 function km3(v) { const [i, d] = v.toFixed(1).split('.'); return i.padStart(3, '\u2007') + '.' + d; }
 function kmHtml(r) {
   const has = v => v != null && isFinite(v);
+  // 県道は公式の距離が無いので、その場所に路線の名前(例 山形白鷹線)を出す
+  const info = refInfo(r.ref);
+  if (info && info.kind === 'pref') return r.sub ? `<span class="km sub">${esc(r.sub)}</span>` : '';
   if (!has(r.km) && !has(r.ovKm)) return '';
   const main = has(r.km) ? km3(r.km) + ' km' : '';
   const ov = has(r.ovKm) ? `<span class="ov">(${km3(r.ovKm)} km)</span>` : `<span class="ov none">(\u2007\u20070.0 km)</span>`;
@@ -685,7 +691,7 @@ function render() {
     };
     const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
     html += `<div class="route ${R.open ? 'open' : ''}" data-ref="${esc(r.ref)}">
-      <div class="rhead"><span class="sgw">${signFor(r.ref, p, 30)}</span>
+      <div class="rhead ${refInfo(r.ref) && refInfo(r.ref).kind === 'pref' && r.sub ? 'hassub' : ''}"><span class="sgw">${signFor(r.ref, p, 30)}</span>
         <span class="nm">${esc(r.name)}</span>
         ${kmHtml(r)}
         <span class="chev">›</span>
@@ -1116,7 +1122,7 @@ async function renderCatalog() {
   const saved = await cachedFiles();
   const C = app.cat;
   const rows = catalog.filter(c => {
-    if (q && !(c.name + ' ' + c.ref + ' ' + (refInfo(c.ref) || {}).no).includes(q)) return false;
+    if (q && !(c.name + ' ' + (c.sub_name || '') + ' ' + c.ref + ' ' + (refInfo(c.ref) || {}).no).includes(q)) return false;
     const i = refInfo(c.ref);
     if (C.kind !== 'all' && (!i || i.kind !== C.kind)) return false;
     if (C.pref && !prefsOf(c).includes(C.pref)) return false;
@@ -1154,7 +1160,7 @@ async function renderCatalog() {
       const stTxt = pg && pg.total ? `・${pad3(pg.done)}/${pad3(pg.total)}` : '';
       const kmTxt = c.km != null ? `・${(+c.km).toFixed(1)} km` : '';
       return `<div class="ci"><div class="sgw">${signFor(c.ref, pc > 0 ? pc / 100 : null, 30)}</div>
-        <div class="tx"><b>${esc(c.name)}</b><small class="num">${sz}${kmTxt}${stTxt}${sv ? '・保存済み' : ''}</small></div>
+        <div class="tx"><b>${esc(c.name)}</b><small class="num">${c.sub_name ? esc(c.sub_name) + '・' : ''}${sz}${kmTxt}${stTxt}${sv ? '・保存済み' : ''}</small></div>
         ${hasCache() ? `<button class="dl ${sv ? 'saved' : ''}" data-f="${esc(c.file)}" title="${sv ? '保存を消す' : '端末に保存'}">
           <svg viewBox="0 0 24 24">${sv ? '<path d="M5 12l4 4 10-10"/>' : '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'}</svg></button>` : ''}
         <button class="use ${on ? 'on' : ''}" data-f="${esc(c.file)}">${on ? '使用中' : '使う'}</button></div>`;

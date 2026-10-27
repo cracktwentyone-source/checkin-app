@@ -4,6 +4,7 @@
 # hash  = 中身から作った印。中身が変わると変わるので、ページ側は端末に保存した古いファイルを自動で取り替える。
 # km    = 総延長(route_master.length_km)。一覧の「距離順」に使う。
 # prefs = 通る都道府県(町村の pref から拾う)。一覧の「都道府県」での絞り込みに使う。
+# sub_name = 路線の名前(route_master.sub_name。例 山形白鷹線)。一覧の表示と検索に使う。
 import json, glob, hashlib
 
 PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
@@ -23,6 +24,7 @@ for path in sorted(glob.glob('routes/*.geojson')):
         continue
     ref = units[0]['properties']['route_ref']
     name = (lines[0] if lines else units[0])['properties'].get('name') or ref
+    sub = next((x['properties']['sub_name'] for x in lines if x['properties'].get('sub_name')), None)
     km = next((x['properties']['length_km'] for x in lines if x['properties'].get('length_km') not in (None, '')), None)
     prefs = sorted({u['properties'].get('pref') for u in units if u['properties'].get('pref')},
                    key=lambda p: PREFS.index(p) if p in PREFS else 99)
@@ -31,6 +33,8 @@ for path in sorted(glob.glob('routes/*.geojson')):
             'hash': hashlib.sha1(raw).hexdigest()[:12]}
     if km is not None:
         item['km'] = float(km)
+    if sub:
+        item['sub_name'] = sub
     if prefs:
         item['prefs'] = prefs
     items.append(item)
