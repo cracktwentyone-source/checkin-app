@@ -1,5 +1,18 @@
 [
  {
+  "ref": "00-013",
+  "name": "国道13号",
+  "file": "routes/r00_013.geojson",
+  "size_kb": 653,
+  "hash": "883212ffa599",
+  "km": 395.3,
+  "prefs": [
+   "秋田県",
+   "山形県",
+   "福島県"
+  ]
+ },
+ {
   "ref": "00-112",
   "name": "国道112号",
   "file": "routes/r00_112.geojson",
