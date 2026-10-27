@@ -14,6 +14,20 @@
   ]
  },
  {
+  "ref": "00-007",
+  "name": "国道7号",
+  "file": "routes/r00_007.geojson",
+  "size_kb": 855,
+  "hash": "db4e8ad5b9ab",
+  "km": 585.9,
+  "prefs": [
+   "青森県",
+   "秋田県",
+   "山形県",
+   "新潟県"
+  ]
+ },
+ {
   "ref": "00-013",
   "name": "国道13号",
   "file": "routes/r00_013.geojson",
