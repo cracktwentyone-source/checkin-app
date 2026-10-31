@@ -1,12 +1,13 @@
 // semete のサービスワーカー(ページを端末に保存して、圏外でも開けるようにする)
 // 中身を変えたら SHELL の番号を上げる(v1 → v2)。古い保存は自動で消える。
-const SHELL = 'semete-shell-v1';
+const SHELL = 'semete-shell-v2';
 const LIBS = 'semete-libs-v1';      // 地図の仕組み(MapLibre)と書体。番号付きの版なので一度取れば変わらない
 const ROUTES = 'routes-v1';          // 「端末に保存」した路線ファイル(ページ側が管理。ここでは消さない)
 
 // アプリの本体。ここに書いたものは最初に開いたときに保存する
 const SHELL_FILES = [
   './route.html',
+  './edit.html',
   './manifest.webmanifest',
   './icons/icon-192.png',
   './icons/icon-512.png',
@@ -86,12 +87,12 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  // 路線の一覧と路線ファイル:電波があればそのまま取り、無ければ保存したもの(「端末に保存」した分もここで使える)
-  if (url.pathname.endsWith('/routes.json') || url.pathname.includes('/routes/')) {
+  // 路線の一覧・道の駅の一覧・路線ファイル:電波があればそのまま取り、無ければ保存したもの(「端末に保存」した分もここで使える)
+  if (url.pathname.endsWith('/routes.json') || url.pathname.endsWith('/michinoeki_routes.geojson') || url.pathname.includes('/routes/')) {
     e.respondWith((async () => {
       try {
         const res = await fetch(req);
-        if (res.ok && url.pathname.endsWith('/routes.json')) (await caches.open(SHELL)).put(url.pathname, res.clone());
+        if (res.ok && !url.pathname.includes('/routes/')) (await caches.open(SHELL)).put(url.pathname, res.clone());
         return res;
       } catch (err) {
         const hit = (await caches.match(url.pathname, { ignoreSearch: true })) || (await caches.match(req, { ignoreSearch: true }));

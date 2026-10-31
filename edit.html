@@ -1,0 +1,701 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>semete 並び順の編集</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#e8dcc0">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&family=Noto+Sans+JP:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --blue:#1f5aa6; --blue-soft:#e6eef9; --ink:#1d232b; --sub:#6b7480; --faint:#9aa2ad;
+    --line:#e5e8ec; --bg2:#f4f5f7; --red:#c62828; --eki:#1f5aa6;
+  }
+  html, body { margin:0; height:100%; overflow:hidden; color:var(--ink); background:#fff;
+    font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif; }
+  button { font:inherit; color:inherit; }
+  .num { font-variant-numeric: tabular-nums; }
+  #app { position:absolute; inset:0; display:flex; flex-direction:column; }
+
+  /* 上の帯 */
+  #top { flex:0 0 auto; display:flex; align-items:center; gap:6px; padding:calc(6px + env(safe-area-inset-top)) 8px 6px 4px;
+    background:#fff; border-bottom:1px solid var(--line); z-index:3; }
+  #top .back { border:none; background:none; font-size:26px; line-height:1; padding:2px 8px 4px; cursor:pointer; text-decoration:none; color:var(--ink); }
+  #pick { flex:1; min-width:0; display:flex; align-items:center; gap:8px; border:1px solid var(--line); background:#fff; border-radius:10px; padding:6px 10px; cursor:pointer; text-align:left; }
+  #pick .nm { font-size:16px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #pick .dd { margin-left:auto; color:var(--faint); font-size:12px; }
+
+  #map { flex:0 0 34vh; position:relative; }
+
+  /* 一覧 */
+  #list { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; position:relative; background:#fff; }
+  .tools { display:flex; gap:6px; padding:10px 12px 8px; flex-wrap:wrap; }
+  .tools button { border:1px solid var(--line); background:#fff; border-radius:8px; padding:7px 10px; font-size:12px; color:var(--sub); cursor:pointer; }
+  .tools button.on { background:var(--blue-soft); color:var(--blue); border-color:#c9d8ee; }
+  .note { margin:0 12px 8px; padding:8px 10px; background:#fff8e1; border-radius:8px; font-size:12px; color:#6d5a1d; line-height:1.5; }
+  .note[hidden] { display:none; }
+
+  /* 道の駅の候補 */
+  #cands { margin:0 12px 10px; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  #cands[hidden] { display:none; }
+  #cands h3 { margin:0; font-size:12px; font-weight:600; color:var(--sub); background:var(--bg2); padding:6px 10px; display:flex; align-items:center; }
+  #cands h3 button { margin-left:auto; border:none; background:var(--blue); color:#fff; border-radius:6px; padding:4px 8px; font-size:11px; cursor:pointer; }
+  .cand { display:flex; align-items:center; gap:8px; padding:8px 10px; border-top:1px solid #f1f2f4; font-size:14px; }
+  .cand .nm { min-width:0; flex:1; cursor:pointer; }
+  .cand .nm small { display:block; font-size:11px; color:var(--faint); }
+  .cand .plus { border:1px solid var(--blue); color:var(--blue); background:#fff; border-radius:50%; width:30px; height:30px; flex:0 0 30px; font-size:18px; line-height:1; cursor:pointer; padding:0; }
+  .cand.sel { background:#fff6d6; }
+  .cempty { padding:8px 10px; font-size:12px; color:var(--faint); border-top:1px solid #f1f2f4; }
+
+  /* 並び */
+  #items { list-style:none; margin:0; padding:0 0 24px; }
+  .gh { font-size:12px; font-weight:600; color:var(--sub); background:#f0f3f7; padding:5px 16px; border-top:1px solid var(--line); }
+  .it { display:flex; align-items:center; gap:10px; padding:10px 12px 10px 16px; border-top:1px solid #f1f2f4; font-size:14px; background:#fff;
+    -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent; cursor:pointer; }
+  .it .no { color:var(--faint); font-size:12px; flex:0 0 26px; }
+  .it .nm { min-width:0; flex:1; }
+  .it .yomi { font-size:11px; color:var(--faint); margin-left:6px; }
+  .it .grip { color:#c3c9d1; font-size:18px; line-height:1; padding:0 2px; }
+  .it .rm { border:none; background:none; color:var(--faint); font-size:18px; padding:0 6px; cursor:pointer; }
+  .eki { color:var(--eki); font-size:12px; font-weight:600; font-style:normal; white-space:nowrap; }
+  .it.st { background:linear-gradient(90deg, #d9e8fa 0%, #fff 80%); }
+  .it.duponly { background:linear-gradient(90deg, #ebdff9 0%, #fff 80%); }
+  .it.st .no { flex:0 0 auto; }
+  .cand .eki { flex:0 0 auto; min-width:52px; }
+  .it.sel, .it.st.sel, .it.duponly.sel { background:#fff6d6; }
+  .it.flash { animation:flash 1.2s ease; }
+  @keyframes flash { 0% { background:#ffe082; } 100% { background:#fff; } }
+  .it.lifting { position:relative; z-index:5; box-shadow:0 6px 18px rgba(0,0,0,.25); border-radius:10px; background:#fff; }
+  #items.dragging .it:not(.lifting) { transition:none; }
+  #items.dragging { touch-action:none; }
+
+  /* 下の帯 */
+  #bottom { flex:0 0 auto; display:flex; align-items:center; gap:10px; padding:8px 12px calc(8px + env(safe-area-inset-bottom));
+    border-top:1px solid var(--line); background:#fff; }
+  #state { flex:1; font-size:12px; color:var(--sub); line-height:1.4; }
+  #state b { color:#b26a00; font-weight:600; }
+  #btnSql { border:none; background:var(--blue); color:#fff; border-radius:10px; padding:10px 14px; font-size:14px; font-weight:600; cursor:pointer; }
+  #btnSql:disabled { background:#c5ccd6; }
+
+  /* 重ねる画面 */
+  .over { position:fixed; inset:0; z-index:10; background:rgba(0,0,0,.35); display:flex; align-items:flex-end; }
+  .over[hidden] { display:none; }
+  .over .box { background:#fff; width:100%; max-height:86vh; border-radius:16px 16px 0 0; display:flex; flex-direction:column;
+    padding-bottom:env(safe-area-inset-bottom); }
+  .over .bh { display:flex; align-items:center; padding:12px 14px; border-bottom:1px solid var(--line); font-weight:700; }
+  .over .bh button { margin-left:auto; border:none; background:none; font-size:22px; color:var(--sub); cursor:pointer; }
+  .over .bb { overflow-y:auto; }
+  .rt { display:flex; align-items:center; gap:10px; padding:10px 16px; border-bottom:1px solid #f1f2f4; cursor:pointer; }
+  .rt .nm { font-size:15px; font-weight:600; }
+  .rt .dr { margin-left:auto; font-size:11px; color:#b26a00; }
+  .rt .sgw { flex:0 0 30px; display:grid; place-items:center; }
+  #sqlText { margin:12px; height:38vh; font:12px/1.5 Menlo,Consolas,monospace; border:1px solid var(--line); border-radius:8px; padding:8px; resize:none; }
+  .sqlbtns { display:flex; gap:8px; padding:0 12px 12px; }
+  .sqlbtns button { flex:1; border:1px solid var(--line); background:#fff; border-radius:10px; padding:10px; font-size:14px; cursor:pointer; }
+  .sqlbtns button.p { background:var(--blue); color:#fff; border-color:var(--blue); }
+  .sqlhelp { padding:0 14px 12px; font-size:12px; color:var(--sub); line-height:1.6; }
+
+  #toast { position:fixed; left:50%; bottom:calc(76px + env(safe-area-inset-bottom)); transform:translateX(-50%); z-index:20;
+    background:rgba(30,35,43,.92); color:#fff; font-size:13px; padding:9px 14px; border-radius:10px; opacity:0; transition:opacity .2s; pointer-events:none; white-space:nowrap; }
+  #toast.on { opacity:1; }
+  .msg { padding:20px 16px; font-size:13px; color:var(--sub); line-height:1.6; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <a class="back" href="route.html" aria-label="地図に戻る">‹</a>
+    <button id="pick"><span class="sgw" id="pickSign"></span><span class="nm" id="pickName">路線を選ぶ</span><span class="dd">▼</span></button>
+  </div>
+  <div id="map"></div>
+  <div id="list">
+    <div class="tools">
+      <button id="btnCands">道の駅の候補</button>
+      <button id="btnRev">起点と終点を入れ替え</button>
+      <button id="btnReset">元に戻す</button>
+    </div>
+    <div class="note" id="note" hidden></div>
+    <div id="cands" hidden></div>
+    <ul id="items"></ul>
+  </div>
+  <div id="bottom">
+    <div id="state">路線を選んでください</div>
+    <button id="btnSql" disabled>SQLを出す</button>
+  </div>
+</div>
+
+<div class="over" id="pickOver" hidden><div class="box">
+  <div class="bh">路線を選ぶ<button data-close aria-label="閉じる">×</button></div>
+  <div class="bb" id="pickList"></div>
+</div></div>
+
+<div class="over" id="sqlOver" hidden><div class="box">
+  <div class="bh">保存用のSQL<button data-close aria-label="閉じる">×</button></div>
+  <textarea id="sqlText" readonly></textarea>
+  <div class="sqlhelp">PCのQGIS(DB Manager)でこのSQLを流してから、テンプレの ⑧⑨(書き出し)をすると、アプリの一覧と地図に反映されます。書き出したファイルがこの並びと同じになると、この端末の下書きは自動で消えます。</div>
+  <div class="sqlbtns"><button id="btnCopy" class="p">コピー</button><button id="btnShare">共有</button></div>
+</div></div>
+<div id="toast"></div>
+
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const pad3 = n => String(n).padStart(3, '0');
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const str = v => v == null || v === '' ? '' : String(v);
+
+const Sign = (() => {
+  // 色:見本画像から取った青/未着手の灰色/白/外周の細い線
+  const BLUE = '#0140ff', GREY = '#a9b0b9', WHITE = '#fff', EDGE = '#c0c0c0';
+  const NUMF = "'Roboto','Helvetica Neue',Arial,sans-serif";
+  const JPF = "'Noto Sans JP','Hiragino Sans',sans-serif";
+  let seq = 0;
+  // 外周の細い線 → 白い縁 → 中の色、の順に重ねる
+  function body(shape, box, p) {
+    const base = shape(EDGE, 30) + shape(WHITE, 26);
+    if (p == null || p <= 0) return base + shape(GREY, 0);
+    if (p >= 1) return base + shape(BLUE, 0);
+    const id = 'sg' + (++seq), [x, y, w, h] = box;
+    return base + shape(GREY, 0) +
+      `<clipPath id="${id}"><rect x="${x}" y="${y + h * (1 - p)}" width="${w}" height="${h}"/></clipPath>` +
+      `<g clip-path="url(#${id})">${shape(BLUE, 0)}</g>`;
+  }
+  const t = (s, x, y, size, opt = '') =>
+    `<text x="${x}" y="${y}" font-size="${size}" fill="${WHITE}" text-anchor="middle" ${opt}>${s}</text>`;
+  // 2〜3文字を、見本のように間を空けて並べる
+  function spread(s, y, size, cx, gap) {
+    const cs = [...s], n = cs.length, g = n >= 3 ? gap * .66 : gap;
+    return cs.map((c, i) => t(c, cx + (i - (n - 1) / 2) * g, y, size, `font-family="${JPF}" font-weight="500"`)).join('');
+  }
+  function num(n, x, y, size, maxW) {
+    const s = String(n);
+    const fit = s.length >= 3 ? ` textLength="${maxW}" lengthAdjust="spacingAndGlyphs"` : '';
+    return t(s, x, y, size, `font-family="${NUMF}" font-weight="500"${fit}`);
+  }
+
+  // 国道(118の2-A)。輪郭は見本画像からなぞったもの
+  const OP = 'M227.0 17.6C232.9 17.6 238.9 17.7 244.8 17.9C250.8 18.1 256.8 18.5 262.7 18.9C268.6 19.3 274.6 19.7 280.5 20.2C286.4 20.7 292.4 21.3 298.3 22.0C304.2 22.7 310.1 23.5 316.0 24.4C321.9 25.3 327.8 26.2 333.6 27.3C339.5 28.4 345.3 29.5 351.1 30.8C356.9 32.1 362.8 33.5 368.4 35.3C374.0 37.2 379.5 39.2 384.8 41.8C390.0 44.4 395.1 47.4 399.7 50.9C404.3 54.5 408.7 58.5 412.5 62.9C416.4 67.2 419.9 72.0 422.8 77.0C425.7 82.1 428.1 87.6 429.9 93.1C431.7 98.6 433.0 104.4 433.6 110.2C434.3 116.0 434.4 122.0 434.1 127.8C433.7 133.7 432.7 139.5 431.5 145.3C430.3 151.1 428.7 156.8 427.1 162.5C425.4 168.2 423.3 173.8 421.4 179.4C419.4 185.1 417.5 190.7 415.4 196.3C413.3 201.8 410.9 207.3 408.7 212.8C406.4 218.3 404.1 223.8 401.6 229.2C399.1 234.6 396.5 239.9 393.8 245.3C391.2 250.6 388.5 255.9 385.7 261.1C382.8 266.4 379.8 271.5 376.8 276.6C373.8 281.7 370.7 286.9 367.6 291.9C364.4 297.0 361.1 301.9 357.9 306.9C354.6 311.9 351.3 316.9 347.9 321.7C344.5 326.6 340.9 331.4 337.3 336.1C333.7 340.8 330.0 345.5 326.3 350.1C322.5 354.7 318.6 359.2 314.7 363.7C310.8 368.1 306.9 372.6 302.9 376.9C298.8 381.2 294.8 385.6 290.4 389.5C286.1 393.4 281.6 397.1 276.7 400.3C271.8 403.5 266.7 406.3 261.3 408.6C255.9 410.8 250.2 412.7 244.5 413.8C238.8 415.0 232.8 415.6 227.0 415.6C221.2 415.6 215.2 415.0 209.5 413.8C203.8 412.7 198.1 410.8 192.7 408.6C187.3 406.3 182.2 403.5 177.3 400.3C172.4 397.1 167.9 393.4 163.6 389.5C159.2 385.6 155.2 381.2 151.1 376.9C147.1 372.6 143.2 368.1 139.3 363.7C135.4 359.2 131.5 354.7 127.7 350.1C124.0 345.5 120.3 340.8 116.7 336.1C113.1 331.4 109.5 326.6 106.1 321.7C102.7 316.9 99.4 311.9 96.1 306.9C92.9 301.9 89.6 297.0 86.4 291.9C83.3 286.9 80.2 281.7 77.2 276.6C74.2 271.5 71.2 266.3 68.3 261.1C65.4 255.9 62.7 250.6 60.0 245.3C57.3 240.0 54.7 234.7 52.2 229.3C49.7 223.9 47.4 218.4 45.2 212.9C42.9 207.4 40.7 201.8 38.6 196.3C36.5 190.7 34.6 185.1 32.6 179.4C30.7 173.8 28.6 168.2 26.9 162.5C25.3 156.8 23.7 151.1 22.5 145.3C21.3 139.5 20.3 133.7 19.9 127.8C19.6 122.0 19.7 116.0 20.4 110.2C21.0 104.4 22.3 98.6 24.1 93.1C25.9 87.6 28.3 82.1 31.2 77.0C34.1 72.0 37.6 67.2 41.5 62.9C45.3 58.5 49.7 54.5 54.3 50.9C58.9 47.4 64.0 44.4 69.2 41.8C74.5 39.2 80.0 37.2 85.6 35.3C91.2 33.5 97.1 32.1 102.9 30.8C108.7 29.5 114.5 28.4 120.4 27.3C126.2 26.2 132.1 25.3 138.0 24.4C143.9 23.5 149.8 22.7 155.7 22.0C161.6 21.3 167.6 20.7 173.5 20.2C179.4 19.7 185.4 19.3 191.3 18.9C197.2 18.5 203.2 18.1 209.2 17.9C215.1 17.7 221.1 17.6 227.0 17.6Z';
+  function onigiri(n, p = 1, width = 56) {
+    const sh = (c, sw) => `<path d="${OP}" fill="${c}"${sw ? ` stroke="${c}" stroke-width="${sw}" stroke-linejoin="round"` : ''}/>`;
+    return `<svg viewBox="0 0 455 435" width="${width}" role="img" aria-label="国道${n}号">` +
+      body(sh, [0, 18, 455, 400], p) +
+      spread('国道', 98, 52, 227.5, 110) +
+      num(n, 227.5, 266, 172, 262) +
+      t('ROUTE', 227.5, 340, 46, `font-family="${NUMF}" font-weight="400"`) + '</svg>';
+  }
+
+  // 都道府県道(118の2-B)。pref は「山形県」「東京都」「北海道」など
+  const HP = 'M114 53 H333 L426 224 L333 409 H114 L21 224 Z';
+  function prefParts(pref) {
+    if (pref === '北海道') return ['道道', '北海道'];
+    const k = pref.slice(-1);
+    return [(k === '都' || k === '府' ? k : '県') + '道', pref.replace(/[都府県]$/, '')];
+  }
+  function hexa(n, pref, p = 1, width = 56) {
+    const [top, bottom] = prefParts(pref);
+    const sh = (c, sw) => `<path d="${HP}" fill="${c}" stroke="${c}" stroke-width="${14 + sw}" stroke-linejoin="round"/>`;
+    return `<svg viewBox="0 0 447 447" width="${width}" role="img" aria-label="${pref}道${n}号">` +
+      body(sh, [0, 44, 447, 374], p) +
+      spread(top, 112, 50, 223.5, 110) +
+      num(n, 223.5, 292, 186, 310) +
+      spread(bottom, 382, 50, 223.5, 110) + '</svg>';
+  }
+  return { onigiri, hexa };
+})();
+
+
+const PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
+  '新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
+  '鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+function refInfo(ref) {
+  const m = /^(\d{2})-(\d+)/.exec(ref || '');
+  if (!m) return null;
+  const pc = +m[1], no = +m[2];
+  return pc === 0 ? { kind: 'nat', no, pc } : { kind: 'pref', no, pc, pref: PREFS[pc - 1] || '' };
+}
+function signFor(ref, p, w) {
+  const i = refInfo(ref);
+  if (!i) return '';
+  return i.kind === 'nat' ? Sign.onigiri(i.no, p, w) : Sign.hexa(i.no, i.pref, p, Math.round(w * .96));
+}
+// 道の駅の番号:id(例 6001)の上の桁が都道府県コード、下3桁が県内の番号 → 「山形-001」
+function ekiNo(id) {
+  const n = +id; if (!Number.isInteger(n) || n < 1000) return '';
+  const pref = PREFS[Math.floor(n / 1000) - 1]; if (!pref) return '';
+  return (pref === '北海道' ? pref : pref.replace(/[都府県]$/, '')) + '-' + String(n % 1000).padStart(3, '0');
+}
+function refName(ref) {
+  const i = refInfo(ref);
+  return !i ? ref : i.kind === 'nat' ? `国道${i.no}号` : `${i.pref}道${i.no}号`;
+}
+let toastT = 0;
+function toast(t) { const el = $('toast'); el.textContent = t; el.classList.add('on'); clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('on'), 2200); }
+
+// ---------- 形の計算 ----------
+function haversine(a, b) {
+  const R = 6371008.8, r = Math.PI / 180;
+  const dLat = (b.lat - a.lat) * r, dLon = (b.lon - a.lon) * r;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}
+function polysOf(g) { return !g ? [] : g.type === 'Polygon' ? [g.coordinates] : g.type === 'MultiPolygon' ? g.coordinates : []; }
+function linesOf(g) { return !g ? [] : g.type === 'LineString' ? [g.coordinates] : g.type === 'MultiLineString' ? g.coordinates : []; }
+function bboxOfCoords(list) {
+  const b = [Infinity, Infinity, -Infinity, -Infinity];
+  for (const c of list) { if (c[0] < b[0]) b[0] = c[0]; if (c[1] < b[1]) b[1] = c[1]; if (c[0] > b[2]) b[2] = c[0]; if (c[1] > b[3]) b[3] = c[1]; }
+  return b;
+}
+const polyCoords = polys => polys.flatMap(p => p[0]);
+function centerOf(polys) {
+  let sx = 0, sy = 0, n = 0;
+  for (const p of polys) for (const c of p[0]) { sx += c[0]; sy += c[1]; n++; }
+  return n ? { lon: sx / n, lat: sy / n } : { lon: 0, lat: 0 };
+}
+// 点から線までの距離(m)。狭い範囲なので平面で近似する
+function distToLines(pt, lines) {
+  const kx = 111320 * Math.cos(pt.lat * Math.PI / 180), ky = 110950;
+  let best = Infinity;
+  for (const ln of lines) for (let i = 1; i < ln.length; i++) {
+    const ax = (ln[i - 1][0] - pt.lon) * kx, ay = (ln[i - 1][1] - pt.lat) * ky;
+    const bx = (ln[i][0] - pt.lon) * kx, by = (ln[i][1] - pt.lat) * ky;
+    const dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+    let t = L ? -(ax * dx + ay * dy) / L : 0; t = Math.max(0, Math.min(1, t));
+    const d = Math.hypot(ax + t * dx, ay + t * dy);
+    if (d < best) best = d;
+  }
+  return best;
+}
+// アプリと同じ決め方:seq があればその順、無ければ起点(または端)から近い順にたどる
+function orderUnits(units, startPt) {
+  if (units.some(u => u.seq != null)) return [...units].sort((a, b) => (a.seq ?? 1e9) - (b.seq ?? 1e9));
+  if (units.length < 2) return [...units];
+  let first;
+  if (startPt) first = units.reduce((m, u) => haversine(startPt, u) < haversine(startPt, m) ? u : m);
+  else {
+    let best = -1;
+    for (const a of units) for (const b of units) {
+      const d = haversine(a, b);
+      if (d > best) { best = d; first = a.lon + a.lat <= b.lon + b.lat ? a : b; }
+    }
+  }
+  const rest = new Set(units), out = [first]; rest.delete(first);
+  let cur = first;
+  while (rest.size) {
+    let next = null, nd = Infinity;
+    for (const u of rest) { const d = haversine(cur, u); if (d < nd) { nd = d; next = u; } }
+    out.push(next); rest.delete(next); cur = next;
+  }
+  return out;
+}
+
+// ---------- 地図 ----------
+const GSI_ATTR = '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank">地理院タイル</a>';
+const map = new maplibregl.Map({
+  container: 'map', attributionControl: { compact: true },
+  style: { version: 8,
+    sources: { pale: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, maxzoom: 18, attribution: GSI_ATTR } },
+    layers: [{ id: 'base', type: 'raster', source: 'pale' }] },
+  center: [140.0, 38.5], zoom: 7
+});
+const mapReady = new Promise(res => map.on('load', res));
+const EMPTY = { type: 'FeatureCollection', features: [] };
+mapReady.then(() => {
+  for (const id of ['e-area', 'e-line', 'e-st', 'e-cand', 'e-sel']) map.addSource(id, { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'e-area', type: 'fill', source: 'e-area', paint: { 'fill-color': '#64b5f6', 'fill-opacity': 0.12 } });
+  map.addLayer({ id: 'e-area-line', type: 'line', source: 'e-area', paint: { 'line-color': '#78909c', 'line-width': 0.8 } });
+  map.addLayer({ id: 'e-sel-fill', type: 'fill', source: 'e-sel', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'fill-color': '#ffd54f', 'fill-opacity': 0.45 } });
+  map.addLayer({ id: 'e-sel-line', type: 'line', source: 'e-sel', filter: ['==', ['geometry-type'], 'Polygon'], paint: { 'line-color': '#ffb300', 'line-width': 3 } });
+  map.addLayer({ id: 'e-line', type: 'line', source: 'e-line', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#e57373', 'line-width': 3 } });
+  map.addLayer({ id: 'e-cand', type: 'circle', source: 'e-cand', paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-color': '#8d6e63', 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'e-st', type: 'circle', source: 'e-st', paint: { 'circle-radius': 6, 'circle-color': '#1f5aa6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+  map.addLayer({ id: 'e-sel-pt', type: 'circle', source: 'e-sel', filter: ['==', ['geometry-type'], 'Point'], paint: { 'circle-radius': 11, 'circle-color': 'rgba(0,0,0,0)', 'circle-stroke-color': '#ffb300', 'circle-stroke-width': 3 } });
+  // 地図の候補の点をタップすると、候補の一覧でその駅を選ぶ
+  map.on('click', e => {
+    const f = (map.queryRenderedFeatures(e.point, { layers: ['e-cand', 'e-st'] }) || [])[0];
+    if (!f) return;
+    const id = String(f.properties.id);
+    if (cur && cur.items.includes('s:' + id)) { select('s:' + id, true); return; }
+    showCands(true); select('c:' + id, true);
+  });
+});
+const setData = (id, fc) => { const s = map.getSource(id); if (s && s.setData) s.setData(fc); };
+
+// ---------- データ ----------
+const CAT_URL = params.get('catalog') || 'routes.json';
+const ST_URL = params.get('stations') || 'michinoeki_routes.geojson';
+const DRAFT_KEY = 'semete_edit_v1';
+let drafts = {};
+try { drafts = JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}') || {}; } catch (e) {}
+const saveDrafts = () => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(drafts)); } catch (e) {} };
+
+let catalog = [], allSt = new Map(), stErr = '';
+let cur = null;          // 開いている路線
+let selKey = null;       // 選んでいる行(u:町村 / s:並びに入れた駅 / c:候補の駅)
+let candsOpen = false;
+
+async function loadCatalog() {
+  const res = await fetch(CAT_URL, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(CAT_URL + ' ' + res.status);
+  catalog = await res.json();
+}
+async function loadStations() {
+  try {
+    const res = await fetch(ST_URL, { cache: 'no-cache' });
+    if (!res.ok) throw new Error(res.status);
+    const gj = await res.json();
+    for (const f of gj.features || []) {
+      const P = f.properties || {}, c = f.geometry && f.geometry.coordinates;
+      if (!c) continue;
+      const id = String(P.id);
+      allSt.set(id, { id, name: str(P.name).replace(/　/g, ' '), town: str(P.match_id), townName: str(P.town),
+        pref: str(P.prefecture), ref: str(P.route_ref), near: str(P.route_near).split(';').filter(Boolean), lon: c[0], lat: c[1] });
+    }
+  } catch (e) { stErr = String(e.message || e); }
+}
+
+const keyOf = it => it.k + ':' + it.id;
+async function openRoute(entry) {
+  const res = await fetch(entry.file, { cache: 'no-cache' });
+  if (!res.ok) throw new Error(entry.file + ' ' + res.status);
+  const gj = await res.json();
+  await mapReady;
+  const feats = gj.features || [];
+  const unitsF = feats.filter(f => f.properties.kind === 'unit');
+  if (!unitsF.length) throw new Error('町村(kind=unit)がありません');
+  const ref = entry.ref || unitsF[0].properties.route_ref;
+  const units = unitsF.map(f => {
+    const P = f.properties, polys = polysOf(f.geometry), c = centerOf(polys);
+    return { k: 'u', id: String(P.match_id), seq: P.seq != null && P.seq !== '' ? +P.seq : null, dupOnly: P.dup_only === true || P.dup_only === 'true',
+      disp: str(P.label) ? str(P.gun_name) + str(P.label) : str(P.name) || String(P.match_id),
+      yomi: str(P.label_yomi), grp: [str(P.pref), str(P.group_name)].filter(Boolean).join(' '),
+      polys, lon: c.lon, lat: c.lat };
+  });
+  const fileSt = feats.filter(f => f.properties.kind === 'station' && f.geometry).map(f => {
+    const P = f.properties, c = f.geometry.coordinates;
+    return { k: 's', id: str(P.item_id), seq: P.seq != null && P.seq !== '' ? +P.seq : null, name: str(P.name).replace(/　/g, ' '),
+      town: str(P.match_id), lon: c[0], lat: c[1] };
+  });
+  const areaF = feats.filter(f => f.properties.kind === 'area');
+  const lineF = feats.filter(f => f.properties.kind === 'line');
+  const startF = feats.find(f => f.properties.kind === 'start');
+  let startPt = null;
+  if (startF && startF.geometry) { let c = startF.geometry.coordinates; while (Array.isArray(c[0])) c = c[0]; startPt = { lon: c[0], lat: c[1] }; }
+
+  // ファイルの並び:町村は seq(無ければ近い順)、駅は seq があればその位置、無ければその駅がある町村の後ろ
+  const ordered = orderUnits(units, startPt);
+  let fileItems;
+  if (fileSt.length && fileSt.every(s => s.seq != null) && units.every(u => u.seq != null)) {
+    fileItems = [...units, ...fileSt].sort((a, b) => a.seq - b.seq).map(keyOf);
+  } else {
+    fileItems = ordered.map(keyOf);
+    for (const s of fileSt) fileItems = insertAfterTown(fileItems, s, units);
+  }
+  const lines = lineF.flatMap(f => linesOf(f.geometry));
+  cur = { entry, ref, name: entry.name || refName(ref), units: new Map(units.map(u => [u.id, u])), unitList: units,
+          fileSt: new Map(fileSt.map(s => [s.id, s])), lines, areaF, fileItems, items: [...fileItems] };
+
+  // 下書き(この端末でまだDBに入れていない並び)があれば、それを開く
+  const d = drafts[ref];
+  let noteHtml = '';
+  if (d && Array.isArray(d.items)) {
+    const ok = d.items.filter(k => k.startsWith('u:') ? cur.units.has(k.slice(2)) : stInfo(k.slice(2)));
+    const missing = fileItems.filter(k => k.startsWith('u:') && !ok.includes(k));
+    let items = ok;
+    for (const k of missing) items = [...items, k];
+    if (same(items, fileItems)) { delete drafts[ref]; saveDrafts(); }
+    else {
+      cur.items = items;
+      noteHtml = `${d.t ? esc(d.t.slice(0, 16).replace('T', ' ')) + ' の' : ''}下書きを開きました(まだ地図のファイルには入っていません)。` +
+        (missing.length ? `<br>路線を作り直して増えた町村 ${missing.length} 件は、いちばん下に足しました。` : '');
+    }
+  }
+  $('note').innerHTML = noteHtml; $('note').hidden = !noteHtml;
+  selKey = null;
+  history.replaceState(null, '', '?ref=' + encodeURIComponent(ref) + (params.get('catalog') ? '&catalog=' + encodeURIComponent(params.get('catalog')) : ''));
+  $('pickSign').innerHTML = signFor(ref, 1, 26);
+  $('pickName').textContent = cur.name;
+  $('btnSql').disabled = false;
+
+  // 地図
+  setData('e-area', { type: 'FeatureCollection', features: areaF.length ? areaF : unitsF });
+  setData('e-line', { type: 'FeatureCollection', features: lineF });
+  setData('e-sel', EMPTY);
+  const b = bboxOfCoords([...lines.flat(), ...units.flatMap(u => polyCoords(u.polys))]);
+  if (isFinite(b[0])) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 24, animate: false });
+  cur.bbox = b;
+  computeCands();
+  render();
+  $('list').scrollTop = 0;
+}
+const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+function stInfo(id) { return allSt.get(id) || (cur && cur.fileSt.get(id)) || null; }
+
+// 駅を、その駅がある町村の行(とその後ろに続く駅)の後ろに入れる。町村が路線に無ければ、いちばん近い町村の後ろ
+function insertAfterTown(items, s, unitList) {
+  const units = unitList || (cur && cur.unitList) || [];
+  let at = items.indexOf('u:' + s.town);
+  if (at < 0 && units.length) {
+    const inList = units.filter(u => items.includes('u:' + u.id));
+    if (inList.length) {
+      const near = inList.reduce((m, u) => haversine(s, u) < haversine(s, m) ? u : m);
+      at = items.indexOf('u:' + near.id);
+    }
+  }
+  const out = [...items];
+  if (at < 0) { out.push('s:' + s.id); return out; }
+  while (at + 1 < out.length && out[at + 1].startsWith('s:')) at++;
+  out.splice(at + 1, 0, 's:' + s.id);
+  return out;
+}
+
+// 候補:この路線に登録された駅と、登録は他の路線でも、この路線から1km以内にある駅
+const NEAR_M = 1000;
+function computeCands() {
+  cur.reg = []; cur.near = [];
+  if (!allSt.size) return;
+  const b = cur.bbox, pad = 0.02;
+  for (const s of allSt.values()) {
+    if (s.ref === cur.ref) { s.d = cur.lines.length ? distToLines(s, cur.lines) : null; cur.reg.push(s); continue; }
+    if (!(s.lon >= b[0] - pad && s.lon <= b[2] + pad && s.lat >= b[1] - pad && s.lat <= b[3] + pad)) continue;
+    const d = cur.lines.length ? distToLines(s, cur.lines) : Infinity;
+    if (d <= NEAR_M || s.near.includes(cur.ref)) { s.d = d; cur.near.push(s); }
+  }
+  cur.near.sort((a, b) => a.d - b.d);
+}
+
+// ---------- 表示 ----------
+function render() {
+  if (!cur) return;
+  const inList = new Set(cur.items);
+  // 並び
+  let html = '', grp = null, n = 0;
+  for (const k of cur.items) {
+    const [t, id] = [k[0], k.slice(2)];
+    if (t === 'u') {
+      const u = cur.units.get(id); n++;
+      if (u.grp !== grp) { grp = u.grp; if (grp) html += `<li class="gh">${esc(grp)}</li>`; }
+      html += `<li class="it u ${u.dupOnly ? 'duponly' : ''} ${selKey === k ? 'sel' : ''}" data-k="${esc(k)}"><span class="no num">${pad3(n)}</span>` +
+        `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span><span class="grip">≡</span></li>`;
+    } else {
+      const s = stInfo(id);
+      html += `<li class="it st ${selKey === k ? 'sel' : ''}" data-k="${esc(k)}"><span class="no"><i class="eki num">${esc(ekiNo(id) || '道の駅')}</i></span>` +
+        `<span class="nm">${esc(s ? s.name : id)}</span><button class="rm" data-k="${esc(k)}" aria-label="並びから外す">×</button><span class="grip">≡</span></li>`;
+    }
+  }
+  $('items').innerHTML = html;
+
+  // 候補
+  const candLi = (s, sub) => `<div class="cand ${selKey === 'c:' + s.id ? 'sel' : ''}" data-id="${esc(s.id)}"><i class="eki num">${esc(ekiNo(s.id) || '道の駅')}</i>` +
+    `<span class="nm">${esc(s.name)}<small>${esc(sub)}</small></span><button class="plus" data-id="${esc(s.id)}" aria-label="並びに入れる">＋</button></div>`;
+  const regC = cur.reg.filter(s => !inList.has('s:' + s.id));
+  const nearC = cur.near.filter(s => !inList.has('s:' + s.id));
+  const dTxt = d => d == null || !isFinite(d) ? '' : d < 1000 ? `${Math.round(d / 10) * 10}m` : `${(d / 1000).toFixed(1)}km`;
+  let ch = `<h3>この路線に登録 ${regC.length}件${regC.length > 1 ? '<button id="btnAddAll">まとめて入れる</button>' : ''}</h3>`;
+  ch += regC.length ? regC.map(s => candLi(s, [s.townName, dTxt(s.d) && '路線から' + dTxt(s.d)].filter(Boolean).join('・'))).join('')
+    : `<div class="cempty">${stErr ? '道の駅のデータ(michinoeki_routes.geojson)を読めませんでした。' : 'ありません(入れ終わったか、登録された駅がありません)'}</div>`;
+  ch += `<h3>近くにある(登録は他の路線) ${nearC.length}件</h3>`;
+  ch += nearC.length ? nearC.map(s => candLi(s, [s.townName, s.ref ? refName(s.ref) : '登録路線なし', '路線から' + dTxt(s.d)].filter(Boolean).join('・'))).join('')
+    : '<div class="cempty">ありません</div>';
+  $('cands').innerHTML = ch;
+  $('cands').hidden = !candsOpen;
+  $('btnCands').classList.toggle('on', candsOpen);
+  $('btnCands').textContent = `道の駅の候補 ${regC.length + nearC.length}`;
+
+  // 地図の点
+  const pt = (s, extra) => ({ type: 'Feature', properties: { id: s.id, ...extra }, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } });
+  setData('e-st', { type: 'FeatureCollection', features: cur.items.filter(k => k[0] === 's').map(k => stInfo(k.slice(2))).filter(Boolean).map(s => pt(s)) });
+  setData('e-cand', { type: 'FeatureCollection', features: candsOpen ? [...regC, ...nearC].map(s => pt(s)) : [] });
+
+  // 下の帯
+  const nSt = cur.items.filter(k => k[0] === 's').length;
+  const changed = !same(cur.items, cur.fileItems);
+  $('state').innerHTML = `町村 ${n}・道の駅 ${nSt}<br>` + (changed ? '<b>変更あり(この端末に下書き保存済み)</b>' : 'ファイルと同じ並び');
+}
+
+function commit(items) {
+  cur.items = items;
+  if (same(items, cur.fileItems)) delete drafts[cur.ref];
+  else drafts[cur.ref] = { items, t: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString() };
+  saveDrafts();
+  render();
+}
+
+// 行を選ぶ → 地図でその町村・駅を見せる
+function select(key, scroll) {
+  selKey = selKey === key ? null : key;
+  render();
+  if (!selKey) { setData('e-sel', EMPTY); return; }
+  const [t, id] = [key[0], key.slice(2)];
+  if (t === 'u') {
+    const f = cur.areaF.find(f => String(f.properties.match_id) === id) || null;
+    const u = cur.units.get(id);
+    const polys = f ? polysOf(f.geometry) : u.polys;
+    setData('e-sel', { type: 'FeatureCollection', features: polys.map(p => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: p } })) });
+    const b = bboxOfCoords(polyCoords(polys));
+    map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: 30, maxZoom: 13, duration: 400 });
+  } else {
+    const s = stInfo(id); if (!s) return;
+    setData('e-sel', { type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Point', coordinates: [s.lon, s.lat] } }] });
+    map.easeTo({ center: [s.lon, s.lat], zoom: Math.max(map.getZoom(), 13), duration: 400 });
+  }
+  if (scroll) {
+    const el = t === 'c' ? $('cands').querySelector(`.cand[data-id="${CSS.escape(id)}"]`) : $('items').querySelector(`.it[data-k="${CSS.escape(key)}"]`);
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }
+}
+function showCands(on) { candsOpen = on; render(); }
+
+function addStation(id, quiet) {
+  const s = stInfo(id); if (!s || cur.items.includes('s:' + id)) return;
+  commit(insertAfterTown(cur.items, s));
+  if (quiet) return;
+  selKey = null;
+  const el = $('items').querySelector(`.it[data-k="${CSS.escape('s:' + id)}"]`);
+  if (el) { el.classList.add('flash'); el.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+  toast(`${s.name}を入れました(長押しで動かせます)`);
+}
+
+// ---------- 操作 ----------
+$('items').addEventListener('click', e => {
+  if (drag.justDropped) return;
+  const rm = e.target.closest('.rm');
+  if (rm) { const k = rm.dataset.k; if (selKey === k) { selKey = null; setData('e-sel', EMPTY); } commit(cur.items.filter(x => x !== k)); return; }
+  const li = e.target.closest('.it');
+  if (li) select(li.dataset.k, false);
+});
+$('cands').addEventListener('click', e => {
+  if (e.target.id === 'btnAddAll') {
+    const ids = cur.reg.filter(s => !cur.items.includes('s:' + s.id)).map(s => s.id);
+    let items = cur.items;
+    for (const id of ids) items = insertAfterTown(items, stInfo(id));
+    commit(items); toast(`${ids.length}件を入れました`); return;
+  }
+  const plus = e.target.closest('.plus');
+  if (plus) { addStation(plus.dataset.id); return; }
+  const c = e.target.closest('.cand');
+  if (c) select('c:' + c.dataset.id, false);
+});
+$('btnCands').addEventListener('click', () => showCands(!candsOpen));
+$('btnRev').addEventListener('click', () => { if (cur) { commit([...cur.items].reverse()); toast('起点と終点を入れ替えました'); } });
+$('btnReset').addEventListener('click', () => {
+  if (!cur || same(cur.items, cur.fileItems)) return;
+  if (!confirm('この路線の下書きを捨てて、ファイルの並びに戻します。よろしいですか?')) return;
+  commit([...cur.fileItems]); $('note').hidden = true; toast('ファイルの並びに戻しました');
+});
+
+// 路線を選ぶ
+function openPicker() {
+  $('pickList').innerHTML = catalog.length ? catalog.map((c, i) =>
+    `<div class="rt" data-i="${i}"><span class="sgw">${signFor(c.ref, 1, 28)}</span><span class="nm">${esc(c.name || c.ref)}</span>` +
+    `${drafts[c.ref] ? '<span class="dr">下書きあり</span>' : ''}</div>`).join('')
+    : '<div class="msg">路線の一覧(routes.json)を読めませんでした。</div>';
+  $('pickOver').hidden = false;
+}
+$('pick').addEventListener('click', openPicker);
+$('pickList').addEventListener('click', async e => {
+  const row = e.target.closest('.rt'); if (!row) return;
+  $('pickOver').hidden = true;
+  try { await openRoute(catalog[+row.dataset.i]); } catch (err) { toast('開けませんでした:' + (err.message || err)); }
+});
+document.querySelectorAll('.over').forEach(o => o.addEventListener('click', e => {
+  if (e.target === o || e.target.closest('[data-close]')) o.hidden = true;
+}));
+
+// SQL
+function makeSql() {
+  const q = s => "'" + String(s).replace(/'/g, "''") + "'";
+  const rows = cur.items.map((k, i) => `(${q(cur.ref)}, ${i + 1}, ${k[0] === 'u' ? "'unit'" : "'station'"}, ${q(k.slice(2))})`);
+  return `DELETE FROM roadshow.route_items WHERE route_ref = ${q(cur.ref)};\n` +
+    `INSERT INTO roadshow.route_items (route_ref, seq, kind, ref_id) VALUES\n` + rows.join(',\n') + ';\n';
+}
+$('btnSql').addEventListener('click', () => { if (!cur) return; $('sqlText').value = makeSql(); $('sqlOver').hidden = false; });
+$('btnCopy').addEventListener('click', async () => {
+  const t = $('sqlText');
+  try { await navigator.clipboard.writeText(t.value); toast('コピーしました'); }
+  catch (e) { t.focus(); t.select(); try { document.execCommand('copy'); toast('コピーしました'); } catch (e2) { toast('長押しで全部選んでコピーしてください'); } }
+});
+$('btnShare').addEventListener('click', async () => {
+  const text = $('sqlText').value;
+  if (navigator.share) { try { await navigator.share({ title: cur.name + ' の並び(SQL)', text }); } catch (e) {} }
+  else toast('この端末では共有が使えません。コピーしてください');
+});
+
+// ---------- 長押しで並べ替え ----------
+const drag = { pid: null, timer: null, li: null, x0: 0, y0: 0, y: 0, off: 0, raf: 0, justDropped: false };
+(() => {
+  const ul = $('items'), pane = $('list');
+  const cancelHold = () => { clearTimeout(drag.timer); drag.timer = null; };
+  ul.addEventListener('pointerdown', e => {
+    const li = e.target.closest('.it');
+    if (!li || e.target.closest('button') || e.button > 0) return;
+    drag.x0 = e.clientX; drag.y0 = drag.y = e.clientY; drag.pid = e.pointerId;
+    cancelHold();
+    drag.timer = setTimeout(() => lift(li), 420);
+  });
+  ul.addEventListener('pointermove', e => {
+    if (drag.li) { e.preventDefault(); drag.y = e.clientY; follow(); return; }
+    if (drag.timer && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) > 8) cancelHold();
+  });
+  ul.addEventListener('touchmove', e => { if (drag.li) e.preventDefault(); }, { passive: false });
+  ul.addEventListener('contextmenu', e => e.preventDefault());
+  window.addEventListener('pointerup', drop);
+  window.addEventListener('pointercancel', () => { if (!drag.li) cancelHold(); else drop(); });
+
+  function lift(li) {
+    drag.timer = null;
+    drag.li = li; li.classList.add('lifting'); ul.classList.add('dragging');
+    drag.off = drag.y0 - li.getBoundingClientRect().top;
+    if (navigator.vibrate) try { navigator.vibrate(12); } catch (e) {}
+    try { li.setPointerCapture(drag.pid); } catch (e) {}
+    follow();
+    const auto = () => {
+      if (!drag.li) return;
+      const r = pane.getBoundingClientRect(), edge = 48;
+      if (drag.y < r.top + edge) { pane.scrollTop -= Math.ceil((r.top + edge - drag.y) / 6); follow(); }
+      else if (drag.y > r.bottom - edge) { pane.scrollTop += Math.ceil((drag.y - r.bottom + edge) / 6); follow(); }
+      drag.raf = requestAnimationFrame(auto);
+    };
+    drag.raf = requestAnimationFrame(auto);
+  }
+  // 指の位置に合わせて、行を並びの中で入れ替える(持ち上げた行は指の下に見えるようにずらす)
+  function follow() {
+    const li = drag.li; if (!li) return;
+    const others = [...ul.querySelectorAll('.it')].filter(x => x !== li);
+    let before = null;
+    for (const o of others) { const r = o.getBoundingClientRect(); if (drag.y < r.top + r.height / 2) { before = o; break; } }
+    if (before) { if (li.nextElementSibling !== before) ul.insertBefore(li, before); }
+    else if (ul.lastElementChild !== li) ul.appendChild(li);
+    li.style.transform = '';
+    const nat = li.getBoundingClientRect().top;
+    li.style.transform = `translateY(${drag.y - drag.off - nat}px)`;
+  }
+  function drop() {
+    cancelHold();
+    const li = drag.li; if (!li) return;
+    cancelAnimationFrame(drag.raf);
+    drag.li = null; li.classList.remove('lifting'); li.style.transform = ''; ul.classList.remove('dragging');
+    drag.justDropped = true; setTimeout(() => drag.justDropped = false, 80);
+    const items = [...ul.querySelectorAll('.it')].map(x => x.dataset.k);
+    if (!same(items, cur.items)) commit(items); else render();
+  }
+})();
+
+// ---------- 起動 ----------
+(async () => {
+  try { await loadCatalog(); } catch (e) { $('state').textContent = '路線の一覧(routes.json)を読めませんでした'; $('items').innerHTML = `<li class="msg">${esc(e.message || e)}</li>`; return; }
+  await loadStations();
+  const want = params.get('ref');
+  const entry = want && catalog.find(c => c.ref === want);
+  if (entry) { try { await openRoute(entry); } catch (e) { toast('開けませんでした:' + (e.message || e)); } }
+  else openPicker();
+})();
+</script>
+</body>
+</html>

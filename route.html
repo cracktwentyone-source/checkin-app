@@ -105,6 +105,14 @@
   .add { display:flex; align-items:center; justify-content:center; gap:6px; margin:0; padding:10px;
     border:1.5px dashed #c8ced6; border-radius:10px; color:var(--blue); background:none; width:100%; cursor:pointer; font-size:14px; }
   .units .tools .clr { color:var(--red); }
+  .units .tools { flex-wrap:wrap; }
+  .eki { color:var(--blue); font-size:12px; font-weight:600; font-style:normal; white-space:nowrap; }
+  .u.st { background:linear-gradient(90deg, #d9e8fa 0%, #fff 80%); }
+  /* 重用区間しか通らない町村(番号の小さい路線を走れば済む所) */
+  .u.duponly { background:linear-gradient(90deg, #ebdff9 0%, #fff 80%); }
+  .u.st .no { flex:0 0 auto; }
+  .u.st .nm { cursor:pointer; }
+  .u.st .r { font-size:11px; color:var(--faint); }
   #fabNorth[hidden] { display:none; }
   /* 地図から隠す */
   .rhead .vis svg { width:20px; height:20px; fill:none; stroke:var(--faint); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; }
@@ -356,6 +364,7 @@ const Sign = (() => {
   return { onigiri, hexa };
 })();
 
+
 const PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県',
   '新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県',
   '鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
@@ -552,7 +561,14 @@ async function addRoute(gj, label, file, opt = {}) {
              grp: [str(P.pref), str(P.group_name)].filter(Boolean).join(' '),
              len: +P.len_m || 0, th: +P.threshold_m || 500, polys, bbox: bboxOf(polys),
              seq: P.seq != null ? +P.seq : null, lon: c[0], lat: c[1],
+             dupOnly: P.dup_only === true || P.dup_only === 'true',
              fileEx: P.excluded === true || P.excluded === 'true' };
+  });
+  // 道の駅(編集ページで並びに入れた駅)。達成率には数えない
+  const stations = feats.filter(f => f.properties.kind === 'station' && f.geometry).map(f => {
+    const P = f.properties, c = f.geometry.coordinates;
+    return { id: str(P.item_id), name: str(P.name).replace(/\u3000/g, ' '), town: str(P.match_id),
+             seq: P.seq != null && P.seq !== '' ? +P.seq : null, lon: c[0], lat: c[1] };
   });
   const bbox = u2.reduce((b, u) => [Math.min(b[0], u.bbox[0]), Math.min(b[1], u.bbox[1]), Math.max(b[2], u.bbox[2]), Math.max(b[3], u.bbox[3])],
                          [Infinity, Infinity, -Infinity, -Infinity]);
@@ -567,13 +583,25 @@ async function addRoute(gj, label, file, opt = {}) {
     layout: { visibility: app.showAreas ? 'visible' : 'none' }, paint: { 'line-color': '#616161', 'line-width': 0.8 } }, before);
   map.addLayer({ id: src + '-sel', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
     paint: { 'line-color': '#ffb300', 'line-width': ['case', ['boolean', ['feature-state', 'sel'], false], 3.5, 0] } }, before);
-  // 路線の線:単独区間はやわらかい赤、重用区間(自分より番号の小さい路線と重なる区間)はやわらかい紫
-  const isDup = ['all', ['==', ['get', 'kind'], 'line'], ['>', ['length', ['coalesce', ['get', 'dup_refs'], '']], 0]];
+  // 路線の線:単独区間はやわらかい赤、重用区間(自分より番号の小さい路線と重なる区間)はやわらかい紫、海上区間は青
+  const isLine = ['==', ['get', 'kind'], 'line'];
+  const isSea = ['==', ['get', 'sea'], 'yes'];
+  const hasDup = ['>', ['length', ['coalesce', ['get', 'dup_refs'], '']], 0];
+  const isDup = ['all', isLine, hasDup, ['!', isSea]];
   map.addLayer({ id: src + '-line', type: 'line', source: src,
-    filter: ['all', ['==', ['get', 'kind'], 'line'], ['==', ['length', ['coalesce', ['get', 'dup_refs'], '']], 0]],
+    filter: ['all', isLine, ['!', hasDup], ['!', isSea]],
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#e57373', 'line-width': 3 } }, before);
   map.addLayer({ id: src + '-dup', type: 'line', source: src, filter: isDup,
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#9c6ade', 'line-width': 4 } }, before);
+  map.addLayer({ id: src + '-sea', type: 'line', source: src, filter: ['all', isLine, isSea],
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': '#3d8fd6', 'line-width': 3.5 } }, before);
+  // 一方通行(高速道路を除く):線の上に進む向きの矢印を並べる。地図を寄せたときだけ
+  addArrowImage();
+  map.addLayer({ id: src + '-ow', type: 'symbol', source: src, minzoom: 11, filter: ['all', isLine, ['==', ['get', 'oneway'], 'yes'], ['!', isSea]],
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 70, 'icon-image': 'ow-arrow', 'icon-size': 0.6,
+              'icon-rotation-alignment': 'map', 'icon-allow-overlap': true, 'icon-ignore-placement': true } }, before);
+  map.addLayer({ id: src + '-st', type: 'circle', source: src, filter: ['==', ['get', 'kind'], 'station'],
+    paint: { 'circle-radius': 5, 'circle-color': '#1f5aa6', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } }, before);
 
   const areaBox = {}, areaPolys = {};
   for (const f of feats) if (f.properties.kind === 'area') {
@@ -583,7 +611,7 @@ async function addRoute(gj, label, file, opt = {}) {
   const startF = feats.find(f => f.properties.kind === 'start');
   const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
   const route = { ref, name, sub, km, ovKm, areaBox, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
-                  order: orderUnits(u2, startPt) };
+                  order: orderUnits(u2, startPt), stations };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
   applyRouteVis(route);
@@ -603,13 +631,13 @@ function applyRouteVis(r) {
   const v = x => (x ? 'visible' : 'none');
   if (map.getLayer(r.src + '-area')) map.setLayoutProperty(r.src + '-area', 'visibility', v(on));
   if (map.getLayer(r.src + '-area-line')) map.setLayoutProperty(r.src + '-area-line', 'visibility', v(on && app.showAreas));
-  for (const k of ['-sel', '-line', '-dup']) if (map.getLayer(r.src + k)) map.setLayoutProperty(r.src + k, 'visibility', v(on));
+  for (const k of ['-sel', '-line', '-dup', '-sea', '-ow', '-st']) if (map.getLayer(r.src + k)) map.setLayoutProperty(r.src + k, 'visibility', v(on));
   for (const id in (r.labels || {})) r.labels[id].el.style.display = on ? '' : 'none';
 }
 function dropRoute(r) {
   if (sel && sel.ref === r.ref) { sel = null; updateBadge(); }
   for (const id in (r.labels || {})) r.labels[id].marker.remove();
-  for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-sel', r.src + '-line', r.src + '-dup']) if (map.getLayer(id)) map.removeLayer(id);
+  for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-sel', r.src + '-line', r.src + '-dup', r.src + '-sea', r.src + '-ow', r.src + '-st']) if (map.getLayer(id)) map.removeLayer(id);
   if (map.getSource(r.src)) map.removeSource(r.src);
   const i = routes.indexOf(r); if (i >= 0) routes.splice(i, 1);
   return i;
@@ -624,6 +652,18 @@ async function replaceRoute(r, gj) {
   await addRoute(gj, r.file, r.file, { quiet: true, at });
 }
 
+// 一方通行の矢印(右向き。線の向きに合わせて回る)。白い縁取りの濃い赤
+function addArrowImage() {
+  if (map.hasImage && map.hasImage('ow-arrow')) return;
+  const S = 40, c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.lineJoin = 'round'; g.lineCap = 'round';
+  const path = () => { g.beginPath(); g.moveTo(11, 9); g.lineTo(27, 20); g.lineTo(11, 31); };
+  path(); g.strokeStyle = '#fff'; g.lineWidth = 11; g.stroke();
+  path(); g.strokeStyle = '#a32f2f'; g.lineWidth = 5.5; g.stroke();
+  map.addImage('ow-arrow', g.getImageData(0, 0, S, S), { pixelRatio: 2 });
+}
+
 // ---------- 起点からの並び順 ----------
 // 1) 判定単位に seq(起点からの順番)があればそれを使う
 // 2) 無ければ、起点(kind=start の点)から「一番近い町村 → そこから一番近い町村 …」とたどる
@@ -635,7 +675,7 @@ function centerOf(polys) {
 }
 function firstCoord(g) { let c = g.coordinates; while (Array.isArray(c[0])) c = c[0]; return { lon: c[0], lat: c[1] }; }
 function orderUnits(units, startPt) {
-  if (units.length && units.every(u => u.seq != null)) return [...units].sort((a, b) => a.seq - b.seq);
+  if (units.some(u => u.seq != null)) return [...units].sort((a, b) => (a.seq ?? 1e9) - (b.seq ?? 1e9));
   if (units.length < 2) return [...units];
   let first;
   if (startPt) first = units.reduce((m, u) => haversine(startPt, u) < haversine(startPt, m) ? u : m);
@@ -695,6 +735,12 @@ function kmHtml(r) {
   return `<span class="km num">${main}${ov}</span>`;
 }
 // route_ref → 路線名(00-013 → 国道13号、06-017 → 山形県道17号)
+// 道の駅の番号:id(例 6001)の上の桁が都道府県コード、下3桁が県内の番号 → 「山形-001」
+function ekiNo(id) {
+  const n = +id; if (!Number.isInteger(n) || n < 1000) return '';
+  const pref = PREFS[Math.floor(n / 1000) - 1]; if (!pref) return '';
+  return (pref === '北海道' ? pref : pref.replace(/[都府県]$/, '')) + '-' + String(n % 1000).padStart(3, '0');
+}
 function refName(ref) {
   const i = refInfo(ref);
   return !i ? ref : i.kind === 'nat' ? `国道${i.no}号` : `${i.pref}道${i.no}号`;
@@ -762,31 +808,53 @@ function render() {
     });
   });
 }
+// 町村と道の駅を1つの並びにする。駅は seq があればその位置、無ければその駅がある町村の後ろ
+function itemsOf(r) {
+  const st = r.stations || [];
+  let out;
+  if (st.length && st.every(s => s.seq != null) && r.units.every(u => u.seq != null))
+    out = [...r.units.map(u => ({ u, seq: u.seq })), ...st.map(s => ({ s, seq: s.seq }))].sort((a, b) => a.seq - b.seq);
+  else {
+    out = r.order.map(u => ({ u }));
+    for (const s of st) {
+      let at = out.findIndex(x => x.u && x.u.id === s.town);
+      if (at < 0) { out.push({ s }); continue; }
+      while (at + 1 < out.length && out[at + 1].s) at++;
+      out.splice(at + 1, 0, { s });
+    }
+  }
+  return out;
+}
 function renderDetail(box, r, st) {
   const R = rec(r.ref);
-  const list = R.reversed ? [...r.order].reverse() : r.order;
-  // 続いている同じグループをひとまとめにする
+  const list = R.reversed ? itemsOf(r).reverse() : itemsOf(r);
+  // 続いている同じグループをひとまとめにする(道の駅は前の町村のグループに入れる)
   const groups = [];
-  list.forEach((u, i) => {
+  let n = 0;
+  list.forEach(x => {
     const g = groups[groups.length - 1];
-    if (g && g.grp === u.grp) g.items.push([u, i]); else groups.push({ grp: u.grp, items: [[u, i]] });
+    if (x.s) { if (g) g.items.push(x); else groups.push({ grp: '', items: [x] }); return; }
+    x.i = n++;
+    if (g && g.grp === x.u.grp) g.items.push(x); else groups.push({ grp: x.u.grp, items: [x] });
   });
+  const stLi = s => `<li class="u st" data-sid="${esc(s.id)}"><span class="no"><i class="eki num">${esc(ekiNo(s.id) || '道の駅')}</i></span>` +
+    `<span class="nm">${esc(s.name)}</span><span class="r">道の駅</span></li>`;
   const unitLi = (u, i) => {
     const d = R.dist[u.id] || 0, s2 = stateOf(r, u);
     const right = s2 === 3 ? '除外' : s2 === 2 ? '<span class="ok">✓</span>'
       : `<span class="d num">${Math.round(d)} / ${Math.round(u.th)} m</span>`;
     const isSel = sel && sel.ref === r.ref && sel.id === u.id;
-    return `<li class="u ${s2 === 3 ? 'ex' : s2 === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
+    return `<li class="u ${s2 === 3 ? 'ex' : s2 === 1 ? 'part' : ''} ${u.dupOnly ? 'duponly' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
       `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span>` +
       `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${s2 === 3 ? '戻す' : '除外'}</button></span></li>`;
   };
-  const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
+  const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(x => x.s ? stLi(x.s) : unitLi(x.u, x.i)).join('')}</ul></li>`).join('');
   const scroll = box.scrollTop;
   box.innerHTML = `<div class="detail ${app.mapOff[r.ref] ? 'mapoff' : ''}" data-ref="${esc(r.ref)}">
     <div class="dhead">${headHtml(r, st.p, '<button class="back" aria-label="路線の一覧に戻る">‹</button>')}
       <div class="cap"><span>▼通過自治体</span><span class="t num">${pad3(st.done)}/${pad3(st.total)}・${st.pct.padStart(5, ' ')}%</span></div></div>
     <div class="units"><ul>${items}</ul>
-      <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="clr">この路線の記録を消す</button></div></div>
+      <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="edit">並びを編集</button><button class="clr">この路線の記録を消す</button></div></div>
   </div>`;
   box.scrollTop = scroll;
   const div = box.querySelector('.detail');
@@ -801,7 +869,12 @@ function renderDetail(box, r, st) {
     if (R.ex[u.id] === u.fileEx) delete R.ex[u.id];   // ファイルの設定と同じなら上書きを消す
     save(); render();
   }));
-  div.querySelectorAll('.u').forEach(li => li.addEventListener('click', e => {
+  div.querySelectorAll('.u.st').forEach(li => li.addEventListener('click', () => {
+    const s = r.stations.find(x => x.id === li.dataset.sid); if (!s) return;
+    map.easeTo({ center: [s.lon, s.lat], zoom: Math.max(map.getZoom(), 13), offset: [0, (20 - sheetH()) / 2], duration: 500 });
+  }));
+  div.querySelector('.edit').addEventListener('click', () => { location.href = 'edit.html?ref=' + encodeURIComponent(r.ref); });
+  div.querySelectorAll('.u:not(.st)').forEach(li => li.addEventListener('click', e => {
     if (e.target.closest('.exb')) return;
     selectUnit(r, li.dataset.id);
   }));
