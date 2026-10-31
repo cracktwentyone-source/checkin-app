@@ -904,9 +904,18 @@ function itemsOf(r) {
   }
   return out;
 }
+// 起点と終点を入れ替える。道の駅は直前の町村の仲間として、町村ごとのかたまりで逆にする
+// (かたまりの中の駅の順も逆にする。先頭にある駅は、最初の町村のかたまりの後ろへ)
+function reverseItems(list, isUnit) {
+  const lead = [], blocks = [];
+  for (const x of list) { if (isUnit(x)) blocks.push([x]); else if (blocks.length) blocks[blocks.length - 1].push(x); else lead.push(x); }
+  const out = [];
+  for (const b of blocks.reverse()) out.push(b[0], ...b.slice(1).reverse());
+  return out.concat(lead.reverse());
+}
 function renderDetail(box, r, st) {
   const R = rec(r.ref);
-  const list = R.reversed ? itemsOf(r).reverse() : itemsOf(r);
+  const list = R.reversed ? reverseItems(itemsOf(r), x => !!x.u) : itemsOf(r);
   // 続いている同じグループをひとまとめにする(道の駅は前の町村のグループに入れる)
   const groups = [];
   let n = 0;

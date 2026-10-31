@@ -583,7 +583,16 @@ $('cands').addEventListener('click', e => {
   if (c) select('c:' + c.dataset.id, false);
 });
 $('btnCands').addEventListener('click', () => showCands(!candsOpen));
-$('btnRev').addEventListener('click', () => { if (cur) { commit([...cur.items].reverse()); toast('起点と終点を入れ替えました'); } });
+// 起点と終点を入れ替える。道の駅は直前の町村の仲間として、町村ごとのかたまりで逆にする
+// (かたまりの中の駅の順も逆にする。先頭にある駅は、最初の町村のかたまりの後ろへ)
+function reverseItems(list, isUnit) {
+  const lead = [], blocks = [];
+  for (const x of list) { if (isUnit(x)) blocks.push([x]); else if (blocks.length) blocks[blocks.length - 1].push(x); else lead.push(x); }
+  const out = [];
+  for (const b of blocks.reverse()) out.push(b[0], ...b.slice(1).reverse());
+  return out.concat(lead.reverse());
+}
+$('btnRev').addEventListener('click', () => { if (cur) { commit(reverseItems(cur.items, k => k[0] === 'u')); toast('起点と終点を入れ替えました'); } });
 $('btnReset').addEventListener('click', () => {
   if (!cur || same(cur.items, cur.fileItems)) return;
   if (!confirm('この路線の下書きを捨てて、ファイルの並びに戻します。よろしいですか?')) return;
