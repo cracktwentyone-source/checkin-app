@@ -49,7 +49,7 @@
 
   /* ---- 路線カード ---- */
   .route { border-bottom:1px solid var(--line); }
-  .rhead { display:flex; align-items:center; gap:10px; padding:12px 16px 4px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
+  .rhead { display:flex; align-items:center; gap:10px; padding:12px 16px; cursor:pointer; -webkit-tap-highlight-color:transparent; }
   .rhead .sgw { flex:0 0 30px; display:grid; place-items:center; }
   .rhead .nm { font-size:17px; font-weight:700; min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .rhead .km { font-size:12px; color:var(--faint); white-space:nowrap; text-align:right; }
@@ -67,7 +67,8 @@
 
   .units { display:none; padding:0 0 12px; }
   .route.open .units { display:block; }
-  .units .cap { font-size:12px; color:var(--sub); padding:4px 16px 6px; }
+  .units .cap { font-size:12px; color:var(--sub); padding:4px 16px 6px; display:flex; justify-content:space-between; align-items:center; }
+  .units .cap .t { font-size:13px; white-space:nowrap; }
   .units ul { list-style:none; margin:0; padding:0; }
   /* 見出しは自分のグループの間だけ貼り付く(次のグループが来ると押し出される) */
   .gwrap { list-style:none; }
@@ -92,6 +93,13 @@
     border:1.5px dashed #c8ced6; border-radius:10px; color:var(--blue); background:none; width:100%; cursor:pointer; font-size:14px; }
   .units .tools .clr { color:var(--red); }
   #fabNorth[hidden] { display:none; }
+  /* 地図から隠す */
+  .rhead .vis svg { width:20px; height:20px; fill:none; stroke:var(--faint); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; display:block; }
+  .route.mapoff .rhead .nm, .route.mapoff .rhead .km, .route.mapoff .rhead .sgw { opacity:.4; }
+  /* 選んでいる路線の標識(左上) */
+  #routeBadge { position:absolute; left:12px; top:calc(12px + env(safe-area-inset-top)); z-index:3; pointer-events:none;
+    filter:drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
+  #routeBadge[hidden] { display:none; }
   /* 選んだ町村の行 */
   .u.sel { background:#fff6d6; }
   .u .nm { cursor:pointer; }
@@ -161,8 +169,14 @@
   .ci .tx { flex:1; min-width:0; }
   .ci .tx b { display:block; font-size:15px; }
   .ci .tx small { color:var(--faint); font-size:12px; }
-  .ci .use { border:1px solid var(--blue); color:var(--blue); background:#fff; border-radius:16px; padding:5px 12px; font-size:13px; cursor:pointer; white-space:nowrap; }
-  .ci .use.on { background:var(--blue); color:#fff; }
+  /* 一覧に入れる/外すスイッチ */
+  .tgl { position:relative; display:inline-block; width:46px; height:28px; flex:0 0 auto; cursor:pointer; }
+  .tgl input { position:absolute; opacity:0; width:0; height:0; }
+  .tgl span { position:absolute; inset:0; background:#cfd4da; border-radius:14px; transition:background .2s; }
+  .tgl span::before { content:""; position:absolute; left:3px; top:3px; width:22px; height:22px; border-radius:50%; background:#fff;
+    box-shadow:0 1px 3px rgba(0,0,0,.3); transition:transform .2s; }
+  .tgl input:checked + span { background:var(--blue); }
+  .tgl input:checked + span::before { transform:translateX(18px); }
   .ci .dl { border:none; background:none; padding:6px; cursor:pointer; }
   .ci .dl svg { width:20px; height:20px; fill:none; stroke:var(--faint); stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
   .ci .dl.saved svg { stroke:var(--green); }
@@ -201,6 +215,7 @@
   <div id="baseList"></div>
   <h3 class="sep">表示するもの</h3>
   <label><input type="checkbox" id="optLabels"> 町村名</label>
+  <label><input type="checkbox" id="optAreas"> 町村の範囲</label>
 </div>
 <input id="fGpx" type="file" accept=".gpx,application/gpx+xml,text/xml" multiple>
 <input id="fRoute" type="file" accept=".geojson,.json" multiple>
@@ -222,6 +237,7 @@
       <li><label for="fRoute">ファイルから路線を読み込む<small>一覧(routes.json)に無い路線ファイルを直接開く</small></label></li>
       <li><button id="btnSql">除外の設定をSQLで表示<small>PostGIS の unit_manual に書き戻すためのSQL</small></button></li>
       <li id="sqlBox" hidden><textarea class="sql" readonly></textarea></li>
+      <li><button id="btnUnuseAll">使用中の路線をすべて外す<small>一覧と地図から外すだけ。走破記録と端末に保存したファイルは残る</small></button></li>
       <li><button id="btnReset" class="danger">記録をリセット<small>この端末に保存した走破記録をすべて消す</small></button></li>
     </ul>
   </div>
@@ -248,6 +264,7 @@
   <div id="catList"></div>
 </div>
 
+<div id="routeBadge" hidden></div>
 <div id="toast"></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -353,6 +370,8 @@ try { app = Object.assign(app, JSON.parse(localStorage.getItem(APP_KEY) || '{}')
 app.hashes = app.hashes || {};
 app.prog = app.prog || {};
 if (app.showLabels == null) app.showLabels = true;
+if (app.showAreas == null) app.showAreas = true;
+app.mapOff = app.mapOff || {};   // 地図から隠している路線(route_ref → true)
 app.cat = Object.assign({ kind: 'all', pref: '', state: 'all', sort: 'no' }, app.cat || {});
 function saveApp() { try { localStorage.setItem(APP_KEY, JSON.stringify(app)); } catch (e) {} }
 
@@ -529,10 +548,9 @@ async function addRoute(gj, label, file, opt = {}) {
   map.addLayer({ id: src + '-area', type: 'fill', source: src, filter: ['==', ['get', 'kind'], 'area'],
     paint: { 'fill-color': ['case', ['boolean', ['feature-state', 'sel'], false], '#ffd54f',
                ['match', ['coalesce', ['feature-state', 'st'], 0], 2, '#1976d2', 1, '#64b5f6', 3, '#fff8e1', '#9e9e9e']],
-             'fill-opacity': ['case', ['boolean', ['feature-state', 'sel'], false], 0.6,
-               ['match', ['coalesce', ['feature-state', 'st'], 0], 2, 0.45, 1, 0.35, 3, 0.6, 0.15]] } }, before);
+             'fill-opacity': areaOpacity() } }, before);
   map.addLayer({ id: src + '-area-line', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
-    paint: { 'line-color': '#616161', 'line-width': 0.8 } }, before);
+    layout: { visibility: app.showAreas ? 'visible' : 'none' }, paint: { 'line-color': '#616161', 'line-width': 0.8 } }, before);
   map.addLayer({ id: src + '-sel', type: 'line', source: src, filter: ['==', ['get', 'kind'], 'area'],
     paint: { 'line-color': '#ffb300', 'line-width': ['case', ['boolean', ['feature-state', 'sel'], false], 3.5, 0] } }, before);
   // 路線の線:単独区間はやわらかい赤、重用区間(自分より番号の小さい路線と重なる区間)はやわらかい紫
@@ -554,6 +572,7 @@ async function addRoute(gj, label, file, opt = {}) {
                   order: orderUnits(u2, startPt) };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
+  applyRouteVis(route);
   render();
   if (!opt.quiet) {
     fitAll();
@@ -563,8 +582,18 @@ async function addRoute(gj, label, file, opt = {}) {
   }
   return route;
 }
+const EYE_ON = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>', EYE_OFF = '<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></svg>';
+// 路線を地図に出すか隠すか(一覧には残す。判定は続ける)。町村の範囲のオン・オフとも組み合わせる
+function applyRouteVis(r) {
+  const on = !app.mapOff[r.ref];
+  const v = x => (x ? 'visible' : 'none');
+  if (map.getLayer(r.src + '-area')) map.setLayoutProperty(r.src + '-area', 'visibility', v(on));
+  if (map.getLayer(r.src + '-area-line')) map.setLayoutProperty(r.src + '-area-line', 'visibility', v(on && app.showAreas));
+  for (const k of ['-sel', '-line', '-dup']) if (map.getLayer(r.src + k)) map.setLayoutProperty(r.src + k, 'visibility', v(on));
+  for (const id in (r.labels || {})) r.labels[id].el.style.display = on ? '' : 'none';
+}
 function dropRoute(r) {
-  if (sel && sel.ref === r.ref) sel = null;
+  if (sel && sel.ref === r.ref) { sel = null; updateBadge(); }
   for (const id in (r.labels || {})) r.labels[id].marker.remove();
   for (const id of [r.src + '-area', r.src + '-area-line', r.src + '-sel', r.src + '-line', r.src + '-dup']) if (map.getLayer(id)) map.removeLayer(id);
   if (map.getSource(r.src)) map.removeSource(r.src);
@@ -690,16 +719,14 @@ function render() {
         `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${st === 3 ? '戻す' : '除外'}</button></span></li>`;
     };
     const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
-    html += `<div class="route ${R.open ? 'open' : ''}" data-ref="${esc(r.ref)}">
+    html += `<div class="route ${R.open ? 'open' : ''} ${app.mapOff[r.ref] ? 'mapoff' : ''}" data-ref="${esc(r.ref)}">
       <div class="rhead ${refInfo(r.ref) && refInfo(r.ref).kind === 'pref' && r.sub ? 'hassub' : ''}"><span class="sgw">${signFor(r.ref, p, 30)}</span>
         <span class="nm">${esc(r.name)}</span>
         ${kmHtml(r)}
         <span class="chev">›</span>
-        <button class="icon-btn rm">外す</button>
+        <button class="icon-btn vis" title="${app.mapOff[r.ref] ? '地図に戻す' : '地図から隠す'}">${app.mapOff[r.ref] ? EYE_OFF : EYE_ON}</button>
       </div>
-      <div class="prog"><span class="t num">${pad3(done)}/${pad3(total)}・${pct.padStart(5, ' ')}%</span>
-        <div class="gauge"><div style="width:${pct}%"></div></div>${nEx ? `<span class="ex">除外 ${nEx}</span>` : ''}</div>
-      <div class="units"><div class="cap">▼通過自治体</div><ul>${items}</ul>
+      <div class="units"><div class="cap"><span>▼通過自治体</span><span class="t num">${pad3(done)}/${pad3(total)}・${pct.padStart(5, '\u2007')}%</span></div><ul>${items}</ul>
         <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="clr">この路線の記録を消す</button></div></div>
     </div>`;
   }
@@ -712,7 +739,7 @@ function render() {
     const r = routes.find(x => x.ref === div.dataset.ref);
     div.querySelector('.rhead').addEventListener('click', e => {
       if (reorder.justDropped) return;
-      if (e.target.closest('.rm')) { removeRoute(r); return; }
+      if (e.target.closest('.vis')) { app.mapOff[r.ref] = !app.mapOff[r.ref]; if (!app.mapOff[r.ref]) delete app.mapOff[r.ref]; saveApp(); applyRouteVis(r); render(); return; }
       const R = rec(r.ref); R.open = !R.open; save(); render();
       if (R.open && sheetH() < innerHeight * .45) setSheet(innerHeight * .6);
     });
@@ -773,10 +800,17 @@ map.on('zoom', updateLabels); map.on('load', updateLabels);
 
 // ---------- 町村を選んで地図で目立たせる(1つだけ) ----------
 let sel = null;   // { ref, id }
+// 町村を選んでいる間だけ、左上にその路線の標識を出す(達成率の色塗りはしない)
+function updateBadge() {
+  const b = $('routeBadge');
+  if (!sel) { b.hidden = true; b.innerHTML = ''; return; }
+  b.innerHTML = signFor(sel.ref, 1, 52); b.hidden = false;
+}
 function selectUnit(r, id) {
   if (sel) { const old = routes.find(x => x.ref === sel.ref); if (old) map.setFeatureState({ source: old.src, id: sel.id }, { sel: false }); }
-  if (sel && sel.ref === r.ref && sel.id === id) { sel = null; render(); return; }
+  if (sel && sel.ref === r.ref && sel.id === id) { sel = null; updateBadge(); render(); return; }
   sel = { ref: r.ref, id };
+  updateBadge();
   map.setFeatureState({ source: r.src, id }, { sel: true });
   render();
   // いつもその町村へズームする。倍率は「パネルを中くらいまで上げたとき」に町村が収まる倍率で固定し、
@@ -795,7 +829,7 @@ const reorder = { timer: null, el: null, ref: null, y0: 0, x0: 0, offset: 0, las
   const pane = $('pRoutes');
   pane.addEventListener('pointerdown', e => {
     const head = e.target.closest('.rhead');
-    if (!head || e.target.closest('.rm') || e.button > 0) return;
+    if (!head || e.target.closest('.vis') || e.button > 0) return;
     const card = head.closest('.route');
     reorder.ref = card.dataset.ref; reorder.x0 = e.clientX; reorder.y0 = e.clientY;
     clearTimeout(reorder.timer);
@@ -1163,10 +1197,10 @@ async function renderCatalog() {
         <div class="tx"><b>${esc(c.name)}</b><small class="num">${c.sub_name ? esc(c.sub_name) + '・' : ''}${sz}${kmTxt}${stTxt}${sv ? '・保存済み' : ''}</small></div>
         ${hasCache() ? `<button class="dl ${sv ? 'saved' : ''}" data-f="${esc(c.file)}" title="${sv ? '保存を消す' : '端末に保存'}">
           <svg viewBox="0 0 24 24">${sv ? '<path d="M5 12l4 4 10-10"/>' : '<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'}</svg></button>` : ''}
-        <button class="use ${on ? 'on' : ''}" data-f="${esc(c.file)}">${on ? '使用中' : '使う'}</button></div>`;
+        <label class="tgl" title="${on ? '一覧から外す' : '一覧に入れる'}"><input type="checkbox" class="use" data-f="${esc(c.file)}" ${on ? 'checked' : ''}><span></span></label></div>`;
     }).join('');
   }).join('') || '<div class="caterr">該当する路線がありません。</div>';
-  box.querySelectorAll('.use').forEach(b => b.addEventListener('click', () => toggleUse(b.dataset.f)));
+  box.querySelectorAll('input.use').forEach(b => b.addEventListener('change', () => toggleUse(b.dataset.f)));
   box.querySelectorAll('.dl').forEach(b => b.addEventListener('click', async () => {
     const f = b.dataset.f;
     try {
@@ -1204,6 +1238,13 @@ $('btnSql').addEventListener('click', () => {
   box.hidden = false;
   ta.value = routes.length ? routes.map(exclusionSql).join('\n') : '-- 使っている路線がありません';
   ta.focus(); ta.select();
+});
+$('btnUnuseAll').addEventListener('click', () => {
+  if (!routes.length) { toast('使用中の路線はありません'); return; }
+  if (!confirm(`使用中の路線を${routes.length}本、すべて外します。よろしいですか?\n(走破記録と端末に保存したファイルは残ります)`)) return;
+  for (const r of [...routes]) dropRoute(r);
+  app.active = []; saveApp(); render(); renderCatalog();
+  toast('すべて外しました');
 });
 $('btnReset').addEventListener('click', () => {
   if (!confirm('この端末に保存した走破記録を消します。よろしいですか?')) return;
@@ -1278,8 +1319,20 @@ function setBase(id) {
   app.base = id; saveApp();
   for (const b of BASES) if (map.getLayer('base-' + b.id)) map.setLayoutProperty('base-' + b.id, 'visibility', b.id === id ? 'visible' : 'none');
 }
-$('fabLayer').addEventListener('click', e => { e.stopPropagation(); renderBases(); $('optLabels').checked = app.showLabels; $('layerPanel').hidden = !$('layerPanel').hidden; });
+$('fabLayer').addEventListener('click', e => { e.stopPropagation(); renderBases(); $('optLabels').checked = app.showLabels; $('optAreas').checked = app.showAreas; $('layerPanel').hidden = !$('layerPanel').hidden; });
 $('optLabels').addEventListener('change', e => { app.showLabels = e.target.checked; saveApp(); updateLabels(); });
+$('optAreas').addEventListener('change', e => { app.showAreas = e.target.checked; saveApp(); applyAreas(); });
+// 町村の範囲(塗りと境界線)の表示。選んだ町村の黄色はオフでも出す
+function areaOpacity() {
+  return ['case', ['boolean', ['feature-state', 'sel'], false], 0.6,
+    app.showAreas ? ['match', ['coalesce', ['feature-state', 'st'], 0], 2, 0.45, 1, 0.35, 3, 0.6, 0.15] : 0];
+}
+function applyAreas() {
+  for (const r of routes) {
+    if (map.getLayer(r.src + '-area')) map.setPaintProperty(r.src + '-area', 'fill-opacity', areaOpacity());
+    applyRouteVis(r);
+  }
+}
 
 // ---------- 方位磁針(地図が回転・傾いているときだけ出す) ----------
 function updateNorth() {
