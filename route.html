@@ -121,6 +121,14 @@
   #routeBadge { position:absolute; left:12px; top:calc(12px + env(safe-area-inset-top)); z-index:3; pointer-events:none;
     filter:drop-shadow(0 2px 4px rgba(0,0,0,.3)); }
   #routeBadge[hidden] { display:none; }
+  /* 今いる町村の標識(上の真ん中)。町村が変わったときは大きく出して、少ししたら小さくなる */
+  #hereSign { position:absolute; left:50%; top:calc(12px + env(safe-area-inset-top)); z-index:3; cursor:pointer;
+    transform:translateX(-50%); transform-origin:50% 0; transition:transform .45s cubic-bezier(.2,.8,.3,1), opacity .3s;
+    filter:drop-shadow(0 2px 5px rgba(0,0,0,.3)); -webkit-tap-highlight-color:transparent; }
+  #hereSign svg { display:block; }
+  #hereSign.big { transform:translateX(-50%) translateY(64px) scale(2); }
+  #hereSign[hidden] { display:none; }
+  #fabLoc { touch-action:none; -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
   /* 選んだ町村の行 */
   .u.sel { background:#fff6d6; }
   .u .nm { cursor:pointer; }
@@ -287,6 +295,7 @@
 </div>
 
 <div id="routeBadge" hidden></div>
+<div id="hereSign" hidden></div>
 <div id="toast"></div>
 
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
@@ -362,6 +371,76 @@ const Sign = (() => {
       spread(bottom, 382, 50, 223.5, 110) + '</svg>';
   }
   return { onigiri, hexa };
+})();
+
+// 市町村の境の標識(白地・青枠・青文字、上に漢字、下にローマ字)
+// MuniSign.svg(label, yomi, { height, faded })  高さを決めると、どの町村も同じ高さで、長い名前は横に伸びる
+const MuniSign = (() => {
+  const BLUE = '#1450a0';
+  // ひらがな → ヘボン式(標識と同じく長音記号は付けない)
+  const T = {
+    'あ':'a','い':'i','う':'u','え':'e','お':'o','か':'ka','き':'ki','く':'ku','け':'ke','こ':'ko',
+    'さ':'sa','し':'shi','す':'su','せ':'se','そ':'so','た':'ta','ち':'chi','つ':'tsu','て':'te','と':'to',
+    'な':'na','に':'ni','ぬ':'nu','ね':'ne','の':'no','は':'ha','ひ':'hi','ふ':'fu','へ':'he','ほ':'ho',
+    'ま':'ma','み':'mi','む':'mu','め':'me','も':'mo','や':'ya','ゆ':'yu','よ':'yo',
+    'ら':'ra','り':'ri','る':'ru','れ':'re','ろ':'ro','わ':'wa','ゐ':'i','ゑ':'e','を':'o','ん':'n',
+    'が':'ga','ぎ':'gi','ぐ':'gu','げ':'ge','ご':'go','ざ':'za','じ':'ji','ず':'zu','ぜ':'ze','ぞ':'zo',
+    'だ':'da','ぢ':'ji','づ':'zu','で':'de','ど':'do','ば':'ba','び':'bi','ぶ':'bu','べ':'be','ぼ':'bo',
+    'ぱ':'pa','ぴ':'pi','ぷ':'pu','ぺ':'pe','ぽ':'po','ゔ':'vu',
+  };
+  const Y = { 'ゃ':'a','ゅ':'u','ょ':'o' };
+  function romaji(kana) {
+    const s = [...kana.replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60))];
+    let out = '';
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i], n = s[i + 1];
+      if (c === 'っ') { const nx = romaji(s.slice(i + 1).join('')); out += nx[0] === 'c' ? 't' : (nx[0] || ''); continue; }
+      if (c === 'ー') continue;
+      let r = T[c];
+      if (r == null) { out += c; continue; }
+      if (n && Y[n]) { r = (r === 'shi' ? 'sh' : r === 'chi' ? 'ch' : r === 'ji' ? 'j' : r.slice(0, -1) + 'y') + Y[n]; i++; }
+      out += r;
+    }
+    // 長音を落とす(おう・おお → o、うう → u)。ん+母音/y は n' だが標識では付けないのでそのまま
+    return out.replace(/ou/g, 'o').replace(/oo/g, 'o').replace(/uu/g, 'u');
+  }
+  // 末尾の 市町村区 を英語にし、読みからその分を取る
+  const SUF = [
+    ['市', ['し'], 'City'], ['町', ['まち', 'ちょう'], 'Town'], ['村', ['むら', 'そん'], 'Village'], ['区', ['く'], 'Ward'],
+  ];
+  function parts(label, yomi) {
+    for (const [k, ys, en] of SUF) if (label.endsWith(k)) {
+      const y = ys.find(y => yomi.endsWith(y));
+      const base = y ? yomi.slice(0, -y.length) : yomi;
+      const r = romaji(base);
+      return { en: r.charAt(0).toUpperCase() + r.slice(1) + ' ' + en };
+    }
+    const r = romaji(yomi); return { en: r.charAt(0).toUpperCase() + r.slice(1) };
+  }
+  function svg(label, yomi, opt = {}) {
+    const col = opt.faded ? '#9aa6b5' : BLUE;
+    const en = opt.en || parts(label, yomi || '').en;
+    const chars = [...label], n = chars.length;
+    // 板の大きさは名前の長さで決める(3文字までは同じ幅、それより長いと横に伸ばす)
+    const fs = 100, gap = n <= 2 ? 1.0 : n === 3 ? 0.42 : n === 4 ? 0.22 : 0.08;
+    const kw = n * fs + (n - 1) * fs * gap;
+    const ew = en.length * 30;                       // 英字のおおよその幅(54px のとき)
+    const inner = Math.max(kw, ew, 330);
+    const PW = inner + 110, PH = 228;
+    const x0 = (PW - kw) / 2;
+    const kanji = chars.map((c, i) => `<text x="${x0 + i * fs * (1 + gap) + fs / 2}" y="118" text-anchor="middle" font-size="${fs}" font-weight="700" fill="${col}">${c}</text>`).join('');
+    const enFit = ew > inner ? ` textLength="${inner}" lengthAdjust="spacingAndGlyphs"` : '';
+    const H = opt.height || (opt.width ? Math.round(opt.width * PH / PW) : 100);
+    const W = Math.round(H * PW / PH);
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${PW} ${PH}" width="${W}" height="${H}" role="img" aria-label="${label} ${en}">
+      <rect x="2" y="2" width="${PW - 4}" height="${PH - 4}" rx="16" fill="#fff" stroke="#c9ced6" stroke-width="2"/>
+      <rect x="13" y="13" width="${PW - 26}" height="${PH - 26}" rx="10" fill="none" stroke="${col}" stroke-width="7"/>
+      <g font-family="'Noto Sans JP','Hiragino Sans','Yu Gothic',sans-serif">${kanji}</g>
+      <text x="${PW / 2}" y="186" text-anchor="middle" font-size="54" font-weight="500" fill="${col}"
+        font-family="'Roboto','Helvetica Neue',Arial,sans-serif"${enFit}>${en}</text>
+    </svg>`;
+  }
+  return { svg, romaji, parts };
 })();
 
 
@@ -610,7 +689,7 @@ async function addRoute(gj, label, file, opt = {}) {
   }
   const startF = feats.find(f => f.properties.kind === 'start');
   const startPt = startF && startF.geometry ? firstCoord(startF.geometry) : null;
-  const route = { ref, name, sub, km, ovKm, areaBox, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
+  const route = { ref, name, sub, km, ovKm, areaBox, areaPolys, labels: makeLabels(u2, areaPolys), file: file || null, units: u2, unitById: Object.fromEntries(u2.map(u => [u.id, u])), bbox, src,
                   order: orderUnits(u2, startPt), stations };
   if (opt.at != null) routes.splice(opt.at, 0, route); else routes.push(route);
   if (file && !app.active.includes(file)) { app.active.push(file); saveApp(); }
@@ -1494,24 +1573,96 @@ map.on('rotate', updateNorth); map.on('pitch', updateNorth);
 $('fabNorth').addEventListener('click', () => map.easeTo({ bearing: 0, pitch: 0, duration: 400 }));
 
 // ---------- 現在地 ----------
-let watchId = null, meMarker = null, firstFix = false;
-$('fabLoc').addEventListener('click', () => {
+// 押す:今いる場所へ地図を動かす(出し続けていないときは1回だけ測って、1分だけ点を出す)
+// 長押し:現在地を出し続ける/やめる(前回の状態を覚えておき、次に開いたときも続ける)
+let watchId = null, meMarker = null, lastPos = null, dotTimer = 0, hereKey = null, bigTimer = 0;
+const GEO_OPT = { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 };
+function showMe(ll) {
+  if (!meMarker) { const el = document.createElement('div'); el.className = 'me'; meMarker = new maplibregl.Marker({ element: el }); }
+  meMarker.setLngLat(ll).addTo(map);
+}
+function hideMe() { if (meMarker) meMarker.remove(); meMarker = null; setHere(null); }
+function onPos(pos) {
+  lastPos = [pos.coords.longitude, pos.coords.latitude];
+  showMe(lastPos); updateHere(lastPos);
+}
+function startWatch() {
+  if (!navigator.geolocation) { toast('この環境では位置情報を使えません'); return; }
+  clearTimeout(dotTimer);
+  $('fabLoc').classList.add('on');
+  app.locOn = true; saveApp();
+  watchId = navigator.geolocation.watchPosition(onPos, err => {
+    // 許可されていないときだけ止める。トンネルなどで一時的に測れないときは続ける
+    if (err.code === 1) { toast('位置情報の使用が許可されていません'); stopWatch(); }
+    else console.warn('geolocation', err.code, err.message);
+  }, GEO_OPT);
+}
+function stopWatch() {
+  if (watchId != null) navigator.geolocation.clearWatch(watchId);
+  watchId = null; $('fabLoc').classList.remove('on'); hideMe();
+  app.locOn = false; saveApp();
+}
+function goHere() {
   if (!navigator.geolocation) { toast('この環境では位置情報を使えません'); return; }
   if (watchId != null) {
-    navigator.geolocation.clearWatch(watchId); watchId = null;
-    $('fabLoc').classList.remove('on'); if (meMarker) meMarker.remove(); meMarker = null;
+    if (lastPos) map.easeTo({ center: lastPos, zoom: Math.max(map.getZoom(), 13), duration: 500 });
+    else toast('現在地を探しています…');
     return;
   }
-  $('fabLoc').classList.add('on'); firstFix = true;
-  watchId = navigator.geolocation.watchPosition(pos => {
-    const ll = [pos.coords.longitude, pos.coords.latitude];
-    if (!meMarker) { const el = document.createElement('div'); el.className = 'me'; meMarker = new maplibregl.Marker({ element: el }); }
-    meMarker.setLngLat(ll).addTo(map);
-    if (firstFix) { map.easeTo({ center: ll, zoom: Math.max(map.getZoom(), 13) }); firstFix = false; }
-  }, err => {
-    toast('位置を取得できませんでした:' + err.message);
-    navigator.geolocation.clearWatch(watchId); watchId = null; $('fabLoc').classList.remove('on');
-  }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 });
+  navigator.geolocation.getCurrentPosition(pos => {
+    onPos(pos);
+    map.easeTo({ center: lastPos, zoom: Math.max(map.getZoom(), 13), duration: 500 });
+    clearTimeout(dotTimer);
+    dotTimer = setTimeout(() => { if (watchId == null) hideMe(); }, 60000);
+    if (!app.locHint) { app.locHint = true; saveApp(); toast('長押しすると、現在地を出し続けます'); }
+  }, err => toast('位置を取得できませんでした:' + err.message), GEO_OPT);
+}
+(() => {
+  const btn = $('fabLoc');
+  let t = 0, long = false;
+  btn.addEventListener('pointerdown', e => {
+    if (e.button > 0) return;
+    long = false; clearTimeout(t);
+    t = setTimeout(() => {
+      long = true;
+      if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
+      if (watchId != null) { stopWatch(); toast('現在地を出すのをやめました'); }
+      else { startWatch(); toast('現在地を出し続けます(長押しでやめる)'); }
+    }, 550);
+  });
+  const cancel = () => clearTimeout(t);
+  btn.addEventListener('pointerup', cancel); btn.addEventListener('pointerleave', cancel); btn.addEventListener('pointercancel', cancel);
+  btn.addEventListener('contextmenu', e => e.preventDefault());
+  btn.addEventListener('click', e => { if (long) { long = false; return; } goHere(); });
+})();
+
+// 今いる町村の標識:読み込んでいる路線の町村(1920年の範囲)の中にいるときだけ出す
+function findHere(ll) {
+  const [x, y] = ll;
+  for (const r of routes) for (const id in r.areaBox) {
+    if (!inBox(r.areaBox[id], x, y)) continue;
+    const ps = r.areaPolys && r.areaPolys[id];
+    if (ps && geomContains(ps, x, y) && r.unitById[id]) return { r, u: r.unitById[id] };
+  }
+  return null;
+}
+function setHere(hit) {
+  const el = $('hereSign');
+  const key = hit ? hit.u.id : null;
+  if (key === hereKey) return;
+  hereKey = key;
+  clearTimeout(bigTimer); el.classList.remove('big');
+  if (!hit) { el.hidden = true; el.innerHTML = ''; return; }
+  el.innerHTML = MuniSign.svg(hit.u.short, hit.u.yomi, { height: 40 });
+  el.dataset.ref = hit.r.ref; el.dataset.id = hit.u.id;
+  el.hidden = false;
+  // 入ったときは大きく見せて、3.5秒で小さくする
+  requestAnimationFrame(() => { el.classList.add('big'); bigTimer = setTimeout(() => el.classList.remove('big'), 3500); });
+}
+function updateHere(ll) { setHere(findHere(ll)); }
+$('hereSign').addEventListener('click', () => {
+  const el = $('hereSign'), r = routes.find(x => x.ref === el.dataset.ref);
+  if (r && r.unitById[el.dataset.id]) selectUnit(r, el.dataset.id);
 });
 
 // ---------- 起動 ----------
@@ -1528,6 +1679,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const list = [...new Set([...app.active, ...(params.get('route') || '').split(',').filter(Boolean)])];
   for (const f of list) await useFile(f, { quiet: true });
   fitAll();
+  if (app.locOn) startWatch();   // 前回、現在地を出し続けていたら続ける
   await cat;
   await syncSaved();
   await pruneMissing();
