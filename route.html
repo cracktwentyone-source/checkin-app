@@ -1166,7 +1166,7 @@ $('fabTrk').addEventListener('click', () => {
 
 // ---------- 路線の一覧(routes.json)と端末への保存 ----------
 const CAT_URL = params.get('catalog') || 'routes.json';
-let catalog = [], catErr = '', catLoading = null;
+let catalog = [], catErr = '', catLoading = null, catOk = false;
 const hasCache = () => 'caches' in window;
 const absPath = f => new URL(f, location.href).pathname;
 async function cachedFiles() {
@@ -1202,8 +1202,8 @@ async function loadCatalog() {
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const j = await res.json();
       if (!Array.isArray(j)) throw new Error('中身が一覧の形ではありません');
-      catalog = j; catErr = j.length ? '' : '一覧は0件でした';
-    } catch (e) { catalog = []; catErr = (e.message || String(e)) + '\n' + url; }
+      catalog = j; catErr = j.length ? '' : '一覧は0件でした'; catOk = true;
+    } catch (e) { catalog = []; catOk = false; catErr = (e.message || String(e)) + '\n' + url; }
     catLoading = null;
     renderCatalog();
   })();
@@ -1229,6 +1229,34 @@ async function syncSaved() {
     } catch (err) { /* 圏外などのときは次の機会に */ }
   }
   if (updated.length) { toast('路線ファイルを新しくしました:' + updated.join('、')); renderCatalog(); }
+}
+
+// 一覧(routes.json)から無くなった路線を片付ける:使用中なら外し、端末に保存したファイルも消す(走破記録は残す)
+async function pruneMissing() {
+  if (!catOk) return;   // 一覧を読めなかったとき(圏外など)は何もしない
+  const inCat = new Set(catalog.map(c => absPath(c.file)));
+  const gone = routes.filter(r => r.file && !inCat.has(absPath(r.file)));
+  const saved = [...await cachedFiles()].filter(p => p.endsWith('.geojson') && !inCat.has(p) && !gone.some(r => absPath(r.file) === p));
+  if (!gone.length && !saved.length) return;
+  const key = [...gone.map(r => r.file), ...saved].sort().join('|');
+  if (app.pruneSkip === key) return;   // 前に「そのまま」を選んだ組み合わせなら聞かない
+  const names = gone.map(r => r.name);
+  const msg = '路線の一覧から無くなった路線があります。\n' +
+    (gone.length ? `\n使用中:${gone.length}本\n${names.slice(0, 8).join('、')}${names.length > 8 ? ' ほか' : ''}\n` : '') +
+    (saved.length ? `\n端末に保存しただけのもの:${saved.length}本\n` : '') +
+    '\n外して、端末に保存したファイルも消しますか?\n(走破記録は残ります。同じ路線を作り直せば続きから使えます)';
+  if (!confirm(msg)) { app.pruneSkip = key; saveApp(); return; }
+  for (const r of gone) {
+    dropRoute(r);
+    app.active = app.active.filter(f => f !== r.file);
+    try { await deleteOffline(r.file); } catch (e) {}
+  }
+  if (saved.length && hasCache()) {
+    const c = await caches.open(CACHE);
+    for (const p of saved) { try { await c.delete(p); } catch (e) {} }
+  }
+  delete app.pruneSkip; saveApp(); render(); renderCatalog();
+  toast(`${gone.length + saved.length}本を片付けました`);
 }
 
 // 路線の一覧の絞り込み・並べ替え
@@ -1501,7 +1529,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   for (const f of list) await useFile(f, { quiet: true });
   fitAll();
   await cat;
-  syncSaved();
+  await syncSaved();
+  await pruneMissing();
 })();
 </script>
 </body>
