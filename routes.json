@@ -4,7 +4,8 @@
   "name": "国道1号",
   "file": "routes/r00_001.geojson",
   "size_kb": 1393,
-  "hash": "8154be398e93",
+  "hash": "4040fe1ba806",
+  "km": 764.6,
   "prefs": [
    "東京都",
    "神奈川県",
@@ -22,7 +23,8 @@
   "name": "国道2号",
   "file": "routes/r00_002.geojson",
   "size_kb": 1213,
-  "hash": "4e6a41ecab2a",
+  "hash": "cb08676e4e71",
+  "km": 690.4,
   "prefs": [
    "大阪府",
    "兵庫県",
@@ -37,8 +39,8 @@
   "name": "国道3号",
   "file": "routes/r00_003.geojson",
   "size_kb": 819,
-  "hash": "10c5a90a23f0",
-  "km": 532.7,
+  "hash": "74d57d68eb8b",
+  "km": 521.8,
   "prefs": [
    "福岡県",
    "佐賀県",
@@ -51,7 +53,8 @@
   "name": "国道4号",
   "file": "routes/r00_004.geojson",
   "size_kb": 1536,
-  "hash": "2b233938c1f1",
+  "hash": "a0c67fa6f412",
+  "km": 838.7,
   "prefs": [
    "青森県",
    "岩手県",
@@ -69,7 +72,8 @@
   "name": "国道5号",
   "file": "routes/r00_005.geojson",
   "size_kb": 325,
-  "hash": "e5df73a0e3b5",
+  "hash": "36943c08ef45",
+  "km": 301.0,
   "prefs": [
    "北海道"
   ]
