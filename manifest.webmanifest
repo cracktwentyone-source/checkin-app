@@ -1,0 +1,17 @@
+{
+  "name": "semete 線・面・点の記録",
+  "short_name": "semete",
+  "description": "走った道・町村・寄った場所を、達成率で記録する個人用の地図",
+  "lang": "ja",
+  "start_url": "./route.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#e8dcc0",
+  "theme_color": "#e8dcc0",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

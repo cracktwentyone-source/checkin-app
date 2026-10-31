@@ -3,7 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>路線走破</title>
+<title>semete</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#e8dcc0">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="semete">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500&family=Noto+Sans+JP:wght@500&display=swap" rel="stylesheet">
@@ -42,6 +49,7 @@
   .tab { flex:1; border:none; background:none; padding:8px 0; border-radius:8px; font-size:14px; color:var(--sub); cursor:pointer; position:relative; }
   .tab.on { background:var(--blue-soft); color:var(--blue); font-weight:600; }
   .tab.more { flex:0 0 48px; font-size:18px; line-height:1; }
+  .fold { flex:0 0 40px; border:none; background:none; color:var(--sub); font-size:15px; cursor:pointer; border-radius:8px; }
   .tab .dot { position:absolute; top:6px; margin-left:3px; width:7px; height:7px; border-radius:50%; background:#f0a020; }
   .pane { flex:1; overflow-y:auto; padding:0 0 calc(16px + env(safe-area-inset-bottom)); display:none; -webkit-overflow-scrolling:touch; }
   .pane.on { display:block; }
@@ -57,7 +65,6 @@
   .rhead.hassub .nm { flex:0 0 auto; }
   .rhead .km.sub { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; }
   .rhead .chev { color:var(--faint); transition:transform .2s; }
-  .route.open .chev { transform:rotate(90deg); }
   .icon-btn { border:none; background:none; padding:6px; border-radius:6px; color:var(--faint); cursor:pointer; font-size:13px; white-space:nowrap; }
   .prog { display:flex; align-items:center; gap:10px; padding:0 16px 12px 56px; font-size:13px; color:var(--sub); }
   .prog .t { white-space:nowrap; }
@@ -65,8 +72,14 @@
   .gauge div { height:100%; background:var(--blue); border-radius:3px; }
   .prog .ex { font-size:11px; color:var(--faint); white-space:nowrap; }
 
-  .units { display:none; padding:0 0 12px; }
-  .route.open .units { display:block; }
+  .units { padding:0 0 12px; }
+  /* 路線ひとつだけの画面 */
+  .dhead { position:sticky; top:0; z-index:3; background:#fff; border-bottom:1px solid var(--line); }
+  .dhead .rhead { padding:10px 12px 6px 6px; cursor:default; }
+  .dhead .back { border:none; background:none; font-size:26px; line-height:1; color:var(--ink); padding:0 8px 2px; cursor:pointer; }
+  .dhead .cap { font-size:12px; color:var(--sub); padding:0 16px 8px; display:flex; justify-content:space-between; align-items:center; }
+  .dhead .cap .t { font-size:13px; white-space:nowrap; }
+  .detail .grp { top:var(--dh, 0px); }
   .units .cap { font-size:12px; color:var(--sub); padding:4px 16px 6px; display:flex; justify-content:space-between; align-items:center; }
   .units .cap .t { font-size:13px; white-space:nowrap; }
   .units ul { list-style:none; margin:0; padding:0; }
@@ -227,6 +240,7 @@
     <button class="tab on" data-p="pRoutes">路線</button>
     <button class="tab" data-p="pTracks">軌跡</button>
     <button class="tab more" data-p="pMore" aria-label="その他">⋯</button>
+    <button class="fold" id="btnFold" aria-label="パネルをしまう">▼</button>
   </div>
   </div>
   <div id="addBar"><button class="add" id="btnAdd">＋ 路線を追加</button></div>
@@ -685,81 +699,117 @@ function refName(ref) {
   const i = refInfo(ref);
   return !i ? ref : i.kind === 'nat' ? `国道${i.no}号` : `${i.pref}道${i.no}号`;
 }
-function render() {
-  const box = $('pRoutes');
-  const scroll = box.scrollTop;
-  let html = '';
-  for (const r of routes) {
-    let done = 0;
-    for (const u of r.units) {
-      const st = stateOf(r, u); if (st === 2) done++;
-      map.setFeatureState({ source: r.src, id: u.id }, { st });
-      const L = r.labels && r.labels[u.id];
-      if (L) { L.el.classList.toggle('ex', st === 3); L.el.classList.toggle('sel', !!(sel && sel.ref === r.ref && sel.id === u.id)); }
-    }
-    const total = targets(r).length, nEx = r.units.length - total;
-    const p = total ? done / total : 0;
-    app.prog[r.ref] = { done, total };   // 路線の一覧の「状態」「達成率順」に使う
-    const pct = (Math.floor(p * 1000) / 10).toFixed(1);
-    const R = rec(r.ref);
-    const list = R.reversed ? [...r.order].reverse() : r.order;
-    // 続いている同じグループをひとまとめにする
-    const groups = [];
-    list.forEach((u, i) => {
-      const g = groups[groups.length - 1];
-      if (g && g.grp === u.grp) g.items.push([u, i]); else groups.push({ grp: u.grp, items: [[u, i]] });
-    });
-    const unitLi = (u, i) => {
-      const d = R.dist[u.id] || 0, st = stateOf(r, u);
-      const right = st === 3 ? '除外' : st === 2 ? '<span class="ok">✓</span>'
-        : `<span class="d num">${Math.round(d)} / ${Math.round(u.th)} m</span>`;
-      const isSel = sel && sel.ref === r.ref && sel.id === u.id;
-      return `<li class="u ${st === 3 ? 'ex' : st === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
-        `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span>` +
-        `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${st === 3 ? '戻す' : '除外'}</button></span></li>`;
-    };
-    const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
-    html += `<div class="route ${R.open ? 'open' : ''} ${app.mapOff[r.ref] ? 'mapoff' : ''}" data-ref="${esc(r.ref)}">
-      <div class="rhead ${refInfo(r.ref) && refInfo(r.ref).kind === 'pref' && r.sub ? 'hassub' : ''}"><span class="sgw">${signFor(r.ref, p, 30)}</span>
+// [路線]タブは2つの画面:路線の一覧(detailRef = null)と、路線ひとつだけの画面(detailRef = その route_ref)
+let detailRef = null, listScroll = 0;
+function routeStats(r) {
+  let done = 0;
+  for (const u of r.units) {
+    const st = stateOf(r, u); if (st === 2) done++;
+    map.setFeatureState({ source: r.src, id: u.id }, { st });
+    const L = r.labels && r.labels[u.id];
+    if (L) { L.el.classList.toggle('ex', st === 3); L.el.classList.toggle('sel', !!(sel && sel.ref === r.ref && sel.id === u.id)); }
+  }
+  const total = targets(r).length;
+  const p = total ? done / total : 0;
+  app.prog[r.ref] = { done, total };   // 路線の一覧の「状態」「達成率順」に使う
+  return { done, total, p, pct: (Math.floor(p * 1000) / 10).toFixed(1) };
+}
+function headHtml(r, p, extra = '') {
+  return `<div class="rhead ${refInfo(r.ref) && refInfo(r.ref).kind === 'pref' && r.sub ? 'hassub' : ''}">${extra}<span class="sgw">${signFor(r.ref, p, 30)}</span>
         <span class="nm">${esc(r.name)}</span>
         ${kmHtml(r)}
-        <span class="chev">›</span>
+        ${extra ? '' : '<span class="chev">›</span>'}
         <button class="icon-btn vis" title="${app.mapOff[r.ref] ? '地図に戻す' : '地図から隠す'}">${app.mapOff[r.ref] ? EYE_OFF : EYE_ON}</button>
-      </div>
-      <div class="units"><div class="cap"><span>▼通過自治体</span><span class="t num">${pad3(done)}/${pad3(total)}・${pct.padStart(5, '\u2007')}%</span></div><ul>${items}</ul>
-        <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="clr">この路線の記録を消す</button></div></div>
-    </div>`;
-  }
-  html += routes.length ? '' : '<div class="empty">走る予定の路線を「＋ 路線を追加」から選んでください。</div>';
+      </div>`;
+}
+function toggleMapOff(r) { app.mapOff[r.ref] = !app.mapOff[r.ref]; if (!app.mapOff[r.ref]) delete app.mapOff[r.ref]; saveApp(); applyRouteVis(r); render(); }
+function openDetail(r) {
+  listScroll = $('pRoutes').scrollTop;
+  detailRef = r.ref;
+  $('addBar').hidden = true;
+  render();
+  $('pRoutes').scrollTop = 0;
+  if (sheetH() < innerHeight * .45) setSheet(snaps()[1] + innerHeight * .1);
+  // 地図をその路線の全体が見える位置に動かす
+  const b = r.bbox;
+  if (b && isFinite(b[0])) map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: { top: 50, left: 30, right: 70, bottom: sheetH() + 20 }, duration: 500 });
+}
+function closeDetail() {
+  detailRef = null;
+  $('addBar').hidden = !document.querySelector('.tab[data-p=pRoutes]').classList.contains('on');
+  render();
+  $('pRoutes').scrollTop = listScroll;
+}
+function render() {
+  const box = $('pRoutes');
+  const stats = new Map(routes.map(r => [r.ref, routeStats(r)]));
   saveApp();
+  const r = detailRef && routes.find(x => x.ref === detailRef);
+  if (detailRef && !r) detailRef = null;
+  if (r) { renderDetail(box, r, stats.get(r.ref)); return; }
+  $('addBar').hidden = !document.querySelector('.tab[data-p=pRoutes]').classList.contains('on');
+  const scroll = box.scrollTop;
+  let html = routes.map(r => `<div class="route ${app.mapOff[r.ref] ? 'mapoff' : ''}" data-ref="${esc(r.ref)}">${headHtml(r, stats.get(r.ref).p)}</div>`).join('');
+  html += routes.length ? '' : '<div class="empty">走る予定の路線を「＋ 路線を追加」から選んでください。</div>';
   box.innerHTML = html;
   box.scrollTop = scroll;
-
   box.querySelectorAll('.route').forEach(div => {
     const r = routes.find(x => x.ref === div.dataset.ref);
     div.querySelector('.rhead').addEventListener('click', e => {
       if (reorder.justDropped) return;
-      if (e.target.closest('.vis')) { app.mapOff[r.ref] = !app.mapOff[r.ref]; if (!app.mapOff[r.ref]) delete app.mapOff[r.ref]; saveApp(); applyRouteVis(r); render(); return; }
-      const R = rec(r.ref); R.open = !R.open; save(); render();
-      if (R.open && sheetH() < innerHeight * .45) setSheet(innerHeight * .6);
+      if (e.target.closest('.vis')) { toggleMapOff(r); return; }
+      openDetail(r);
     });
-    div.querySelectorAll('button.exb').forEach(b => b.addEventListener('click', () => {
-      const R = rec(r.ref); R.ex = R.ex || {};
-      const u = r.unitById[b.dataset.id];
-      R.ex[u.id] = !isEx(r, u);
-      if (R.ex[u.id] === u.fileEx) delete R.ex[u.id];   // ファイルの設定と同じなら上書きを消す
-      save(); render();
-    }));
-    div.querySelectorAll('.u').forEach(li => li.addEventListener('click', e => {
-      if (e.target.closest('.exb')) return;
-      selectUnit(r, li.dataset.id);
-    }));
-    div.querySelector('.rev').addEventListener('click', () => { const R = rec(r.ref); R.reversed = !R.reversed; save(); render(); });
-    div.querySelector('.clr').addEventListener('click', () => {
-      if (!confirm(`${r.name}の走破記録を消します。よろしいですか?\n(除外と並び順の設定は残ります)`)) return;
-      const R = rec(r.ref); R.dist = {}; R.lastTime = null; save(); render();
-      toast(`${r.name}の記録を消しました`);
-    });
+  });
+}
+function renderDetail(box, r, st) {
+  const R = rec(r.ref);
+  const list = R.reversed ? [...r.order].reverse() : r.order;
+  // 続いている同じグループをひとまとめにする
+  const groups = [];
+  list.forEach((u, i) => {
+    const g = groups[groups.length - 1];
+    if (g && g.grp === u.grp) g.items.push([u, i]); else groups.push({ grp: u.grp, items: [[u, i]] });
+  });
+  const unitLi = (u, i) => {
+    const d = R.dist[u.id] || 0, s2 = stateOf(r, u);
+    const right = s2 === 3 ? '除外' : s2 === 2 ? '<span class="ok">✓</span>'
+      : `<span class="d num">${Math.round(d)} / ${Math.round(u.th)} m</span>`;
+    const isSel = sel && sel.ref === r.ref && sel.id === u.id;
+    return `<li class="u ${s2 === 3 ? 'ex' : s2 === 1 ? 'part' : ''} ${isSel ? 'sel' : ''}" data-id="${esc(u.id)}"><span class="no num">${pad3(i + 1)}</span>` +
+      `<span class="nm">${esc(u.disp)}${u.yomi ? `<span class="yomi">${esc(u.yomi)}</span>` : ''}</span>` +
+      `<span class="r">${right}<button class="exb" data-id="${esc(u.id)}">${s2 === 3 ? '戻す' : '除外'}</button></span></li>`;
+  };
+  const items = groups.map(g => `<li class="gwrap">${g.grp ? `<div class="grp">${esc(g.grp)}</div>` : ''}<ul>${g.items.map(([u, i]) => unitLi(u, i)).join('')}</ul></li>`).join('');
+  const scroll = box.scrollTop;
+  box.innerHTML = `<div class="detail ${app.mapOff[r.ref] ? 'mapoff' : ''}" data-ref="${esc(r.ref)}">
+    <div class="dhead">${headHtml(r, st.p, '<button class="back" aria-label="路線の一覧に戻る">‹</button>')}
+      <div class="cap"><span>▼通過自治体</span><span class="t num">${pad3(st.done)}/${pad3(st.total)}・${st.pct.padStart(5, ' ')}%</span></div></div>
+    <div class="units"><ul>${items}</ul>
+      <div class="tools"><button class="rev">起点と終点を入れ替える</button><button class="clr">この路線の記録を消す</button></div></div>
+  </div>`;
+  box.scrollTop = scroll;
+  const div = box.querySelector('.detail');
+  // 町村の追従ヘッダは、路線のヘッダのすぐ下に貼り付く
+  div.style.setProperty('--dh', div.querySelector('.dhead').offsetHeight + 'px');
+  div.querySelector('.back').addEventListener('click', closeDetail);
+  div.querySelector('.vis').addEventListener('click', () => toggleMapOff(r));
+  div.querySelectorAll('button.exb').forEach(b => b.addEventListener('click', () => {
+    R.ex = R.ex || {};
+    const u = r.unitById[b.dataset.id];
+    R.ex[u.id] = !isEx(r, u);
+    if (R.ex[u.id] === u.fileEx) delete R.ex[u.id];   // ファイルの設定と同じなら上書きを消す
+    save(); render();
+  }));
+  div.querySelectorAll('.u').forEach(li => li.addEventListener('click', e => {
+    if (e.target.closest('.exb')) return;
+    selectUnit(r, li.dataset.id);
+  }));
+  div.querySelector('.rev').addEventListener('click', () => { R.reversed = !R.reversed; save(); render(); });
+  div.querySelector('.clr').addEventListener('click', () => {
+    if (!confirm(`${r.name}の走破記録を消します。よろしいですか?\n(除外と並び順の設定は残ります)`)) return;
+    R.dist = {}; R.lastTime = null; save(); render();
+    toast(`${r.name}の記録を消しました`);
   });
 }
 $('btnAdd').addEventListener('click', openCatalog);
@@ -829,7 +879,7 @@ const reorder = { timer: null, el: null, ref: null, y0: 0, x0: 0, offset: 0, las
   const pane = $('pRoutes');
   pane.addEventListener('pointerdown', e => {
     const head = e.target.closest('.rhead');
-    if (!head || e.target.closest('.vis') || e.button > 0) return;
+    if (detailRef || !head || !head.closest('.route') || e.target.closest('.vis') || e.button > 0) return;
     const card = head.closest('.route');
     reorder.ref = card.dataset.ref; reorder.x0 = e.clientX; reorder.y0 = e.clientY;
     clearTimeout(reorder.timer);
@@ -846,10 +896,6 @@ const reorder = { timer: null, el: null, ref: null, y0: 0, x0: 0, offset: 0, las
 
   function startDrag(pid) {
     reorder.timer = null;
-    // 自治体リストは全部閉じる
-    let changed = false;
-    for (const r of routes) { const R = rec(r.ref); if (R.open) { R.open = false; changed = true; } }
-    if (changed) { save(); render(); }
     const el = pane.querySelector(`.route[data-ref="${CSS.escape(reorder.ref)}"]`);
     if (!el) return;
     reorder.el = el; el.classList.add('lifting'); pane.classList.add('reordering');
@@ -1256,7 +1302,7 @@ $('btnReset').addEventListener('click', () => {
 function showTab(id) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.p === id));
   document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === id));
-  $('addBar').hidden = id !== 'pRoutes';
+  $('addBar').hidden = id !== 'pRoutes' || !!detailRef;
 }
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   showTab(t.dataset.p); if (sheetH() < 200) setSheet(innerHeight * .5);
@@ -1266,7 +1312,10 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 const sheet = $('sheet');
 const snaps = () => [150, innerHeight * .5, innerHeight * .88];
 const sheetH = () => sheet.getBoundingClientRect().height;
-function setSheet(h) { sheet.style.height = Math.round(h) + 'px'; }
+function setSheet(h) { sheet.style.height = Math.round(h) + 'px'; updateFold(Math.round(h)); }
+// 右上の▼:伸びていればいちばん下までしまう。しまっていれば中くらいまで出す(そのときは▲)
+function updateFold(h) { const low = (h ?? sheetH()) <= snaps()[0] + 10; $('btnFold').textContent = low ? '▲' : '▼'; $('btnFold').setAttribute('aria-label', low ? 'パネルを出す' : 'パネルをしまう'); }
+$('btnFold').addEventListener('click', e => { e.stopPropagation(); setSheet(sheetH() <= snaps()[0] + 10 ? snaps()[1] : snaps()[0]); });
 // つまみの周りとタブの列のどこからでも引っぱれる。指が少しでも動いたら「引っぱり」として扱い、タブは押さない
 (() => {
   let y0 = null, h0 = 0, moved = false, fromGrab = false, suppress = false;
@@ -1294,13 +1343,12 @@ function setSheet(h) { sheet.style.height = Math.round(h) + 'px'; }
 })();
 
 // ---------- 重用区間をタップ ----------
-// 重用区間の線以外をタップしたときは、パネルが伸びていれば引っ込める
 map.on('click', e => {
   if (!$('layerPanel').hidden) { $('layerPanel').hidden = true; return; }
   const layers = routes.map(r => r.src + '-dup').filter(id => map.getLayer(id));
   const p = e.point;
   const fs = layers.length ? map.queryRenderedFeatures([[p.x - 12, p.y - 12], [p.x + 12, p.y + 12]], { layers }) : [];
-  if (!fs.length) { if (sheetH() > snaps()[0] + 10) setSheet(snaps()[0]); return; }
+  if (!fs.length) return;   // 地図のタップではパネルを下げない(しまうのは右上の▼)
   const msgs = [...new Set(fs.map(f => {
     const r = routes.find(r => r.src === f.source);
     const others = String(f.properties.dup_refs || '').split(';').filter(Boolean).map(x => '(重)' + refName(x));
@@ -1367,7 +1415,13 @@ $('fabLoc').addEventListener('click', () => {
 
 // ---------- 起動 ----------
 // 前回「使う」にしていた路線と、?route=URL1,URL2 で指定した路線を読み込む
-render(); renderTracks();
+render(); renderTracks(); updateFold();
+// ---------- PWA:ページを端末に保存して、圏外でも開けるようにする ----------
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js').catch(e => console.warn('sw', e));
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController) toast('新しい版にしました'); });
+}
 (async () => {
   const cat = loadCatalog();   // 一覧は路線の読み込みを待たずにすぐ取りに行く
   const list = [...new Set([...app.active, ...(params.get('route') || '').split(',').filter(Boolean)])];
